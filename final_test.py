@@ -53,19 +53,31 @@ def heading(text: str):
     print(f"\n{'=' * 78}\n{text}\n{'=' * 78}")
 
 
-def lap_models():
-    """Step 1: retrain both lap time models on 2022 to 2024, score on 2025."""
+def lap_models(retrain: bool = True):
+    """Step 1: retrain both lap time models on 2022 to 2024, score on 2025.
+
+    retrain=False scores the network already saved in models/final/ again,
+    without changing it (used once, to reprint a table: DECISIONS.md 32).
+    """
     heading("1. Lap time models: trained on 2022 to 2024, scored on 2025")
     laps = baseline.load_clean_laps(include_test=True)
     train = laps.filter(pl.col("Split").is_in(SEASONS_BEFORE_TEST))
     test = laps.filter(pl.col("Split") == "test")
-    model, scaling = train_network.fit_network(baseline.training_laps(train), test)
-    centre, spread = train_network.predict(model, train_network.to_tensors(test, scaling))
     # The two calibration numbers stay exactly as they were fixed on 2024.
     frozen = torch.load(train_network.MODEL_FILE, weights_only=False)
     factor, driver_spread = frozen["spread_factor"], frozen["driver_offset_spread"]
+    file = FINAL / "lap_time_network.pt"
+    if retrain:
+        model, scaling = train_network.fit_network(baseline.training_laps(train), test)
+    else:
+        saved = torch.load(file, weights_only=False)
+        scaling = saved["scaling"]
+        model = train_network.LapTimeNetwork(len(scaling["circuits"])).to(train_network.DEVICE)
+        model.load_state_dict(saved["weights"])
+    centre, spread = train_network.predict(model, train_network.to_tensors(test, scaling))
     train_network.report(train, test, centre, spread, factor, "2025 (test)")
-    train_network.save_model(model, scaling, factor, driver_spread, FINAL / "lap_time_network.pt")
+    if retrain:
+        train_network.save_model(model, scaling, factor, driver_spread, file)
 
 
 def statistics() -> dict:
@@ -121,6 +133,9 @@ def save_app_races():
 
 
 def main():
+    if "--lap-table" in sys.argv:
+        lap_models(retrain=False)
+        return
     if MARKER.exists() and "--again" not in sys.argv:
         raise SystemExit(f"The final test has already been run ({MARKER} exists).")
     lap_models()

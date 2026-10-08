@@ -176,7 +176,9 @@ def load_races(splits: list[str], laps_file: Path = LAPS_FILE) -> list[Race]:
     """Every dry race without a red flag in the given seasons."""
     laps = pl.read_parquet(laps_file).filter(pl.col("Split").is_in(splits))
     red_flagged = pl.col("IsRedFlag").any().over(RACE)
-    laps = laps.filter(~pl.col("IsWetRace") & ~red_flagged)
+    # A race with no qualifying times has no pole lap to measure against, so
+    # it cannot be simulated (Miami 2025: the data source has none).
+    laps = laps.filter(~pl.col("IsWetRace") & ~red_flagged & pl.col("PoleTime").is_not_null())
     per_lap = race_stats.track_status_by_lap(laps)
     races = []
     for key, race_laps in laps.group_by(RACE, maintain_order=True):

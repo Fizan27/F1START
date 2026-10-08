@@ -426,3 +426,115 @@ learning rate 0.0003. Training takes under 5 minutes on the RTX 5070 Ti.
   simulations per driver, so the sampling noise is small.
 - Training races: the 32 dry 2022 to 2023 races, any finisher's car, with
   random safety cars drawn from the measured rates.
+
+## 29. Simulator flaws the search and the strategist exploit
+
+The first brute force run said the best fixed plan beat real teams by 2.06
+places and 14.9s on average, in 90% of driver races. Real teams are not that
+far from optimal, so this was treated as a symptom, and investigated.
+
+What was found:
+
+1. Soft tyres are overrated. The winning plans spent five times as many laps
+   on softs as real teams (7,553 against 1,508 in 2024), in stints averaging
+   22 laps where teams average 13. The AI strategist does the same: 36% of
+   its laps on softs against 7% for teams. Causes, all in the data the lap
+   time model learns from:
+   - "Soft", "medium" and "hard" are relative names. Pirelli brings a
+     different three of its five compounds to each race, and the public data
+     does not say which. The model learns one average "soft".
+   - Selection: teams only run softs where and when they will last, so the
+     soft laps in the data are the good ones.
+   - Season shift: softs were raced more in 2022 to 2023 (median stint 17
+     laps) than in 2024.
+2. Extra stops are undervalued. 103 real two-stop races became one-stops.
+   Drivers on a long stint nurse their tyres, so the data shows long stints
+   as cheap, and the model cannot know a car on a shorter stint could push.
+3. The simulator knows nothing about tyre allocation (which sets a team has
+   left), damage, penalties, team orders or covering a rival.
+
+What was done:
+
+- The tyre age guard (number 23) was tightened from the age 99% of laps
+  stayed under (soft 29, medium 35, hard 42 laps) to the age 90% of real
+  stints ended by (25, 29, 39), with the penalty tripled to 0.30% of pole per
+  lap. Effect on the brute force gain: 2.06 to 2.08 places. So long stints
+  were not the main exploit; the compound choice was.
+- A second, fairer comparison was added and is now the headline: the search
+  and the strategist may only fit the compounds that driver's team really
+  used in that race. This removes exploit 1 and the allocation problem.
+  Effect on 2024: brute force 2.08 to 1.46 places, strategist 1.66 to 1.21.
+- Real strategies containing a stop in the first 3 laps (damage) are left
+  out of comparisons: 5 of 350 driver races in 2024.
+
+What remains: even with the team's tyres, the simulator says a fixed plan
+gains 1.46 places on real teams. Much of that is still exploit 2 and item 3.
+The absolute "places gained over real teams" must not be read as "teams
+left this much on the table". The comparison between brute force and the
+strategist, which face the same simulator, is the trustworthy part.
+
+Checks that came back clean: the strategist makes about as many stops as
+teams (1.46 against 1.69 per race), its longest stints are similar (31
+against 32 laps), it stops under a safety car or VSC about as often (18% of
+stops against 16%), and it almost never needs the forced last-lap stop
+(0.2% of races). One visible weakness: because its choices are sampled, it
+occasionally makes a pointless stop, such as two stops on consecutive laps
+or a stop a few laps from the end.
+
+## 30. The AI strategist does not beat brute force, and that is reported
+
+On 2024, limited to the team's tyres, the strategist gains 1.21 places on
+real teams against 1.46 for the best fixed plan. In races with a safety car
+or VSC the two are level (1.20 each): the strategist's ability to react
+makes up for its less precise timing. In races without one the fixed plan
+is clearly better (1.73 against 1.23).
+
+This is expected in hindsight. Brute force tests about a thousand plans for
+that exact car in that exact race. The strategist is one small network that
+must handle every car at every circuit from 23 numbers, including circuits
+it never trained on, and it never sees the race it is tested on.
+
+No further tuning was done to chase a better number, because 2024 had
+already been used for many choices. The 2025 test reports whatever it finds.
+
+## 31. The final test protocol
+
+`final_test.py` retrains the lap time network, the race statistics and the
+strategist on 2022 to 2024 with every setting frozen, then scores them on
+2025. It refuses to run twice. The two calibration numbers (the spread
+widening factor 1.145 and the driver offset 0.54% x 0.4) are carried over
+unchanged, because 2024 is training data in the final model and cannot also
+calibrate it. The website shows 2024 with the 2022 to 2023 models and 2025
+with the 2022 to 2024 models, so each season is always simulated by models
+that never saw it.
+
+## 32. What happened during the final test (recorded for honesty)
+
+The final test was started twice, and one table was printed again later.
+None of this involved changing a model or a setting after seeing 2025.
+
+- First start: crashed before the simulator ran, because Miami 2025 has no
+  qualifying times in the data source and so no pole lap. Fix: races with no
+  pole time are left out (`simulator.load_races`, and the lap tables in
+  `train_baseline.load_clean_laps`). 20 dry 2025 races remain. Restarted
+  with `--again`.
+- The lap-level table of step 1 printed "NaN" in the full run, for the same
+  reason (Miami's laps had no target). After the filter was added, the table
+  was printed again from the saved final network without retraining it
+  (`final_test.py --lap-table`, output in results/final_test_lap_table.txt).
+- Full output of the run: results/final_test_report.txt.
+
+2025 results that were worse than 2024, stated plainly:
+
+- The network was slightly worse than LightGBM on 2025 laps (0.603s against
+  0.588s dry mean miss); on 2024 it was slightly better. They are level.
+- Replay: the simulated finishing order missed by 2.60 places, worse than
+  the 2.45 of assuming grid order. On 2024 it beat grid order (2.09 against
+  2.43). The overtaking rule and the driver offset share were chosen on
+  2024, and that advantage did not carry over.
+- Simulated position ranges were too narrow on 2025: 78% of real results
+  fell inside the 90% range (88% on 2024).
+
+2025 results that held up: the lap level calibration (90.8% of dry laps
+inside the 90% range), the winner (18 of 19 races), and the ordering of
+brute force above the AI strategist.

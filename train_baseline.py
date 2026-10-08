@@ -64,7 +64,9 @@ def load_clean_laps(include_test: bool = False) -> pl.DataFrame:
     # nothing can peek at it by accident. Only final_test.py asks for it.
     if not include_test:
         laps = laps.filter(pl.col("Split") != "test")
-    laps = laps.filter(pl.col("IsCleanLap"))
+    # A race without qualifying times has no pole lap and so no target
+    # (Miami 2025: the data source has none).
+    laps = laps.filter(pl.col("IsCleanLap") & pl.col(TARGET).is_not_null())
     circuits = pl.Enum(sorted(laps["Circuit"].unique().to_list()))
     return laps.with_columns(
         pl.col("GapAhead").clip(upper_bound=GAP_CAP_SECONDS),

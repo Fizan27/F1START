@@ -1,0 +1,295 @@
+
+==============================================================================
+1. Lap time models: trained on 2022 to 2024, scored on 2025
+==============================================================================
+
+Training on cuda for 20 epochs. Both losses should fall:
+  epoch   1   training loss 0.618   validation loss 0.637
+  epoch   5   training loss 0.377   validation loss 0.475
+  epoch  10   training loss 0.314   validation loss 0.470
+  epoch  15   training loss 0.282   validation loss 0.481
+  epoch  20   training loss 0.257   validation loss 0.485
+
+1. Pace within the race, on 2025 (test). Miss in seconds per lap:
+shape: (2, 5)
+┌───────────────────┬─────────────────┬───────────────────┬─────────────────┬──────────────────────┐
+│ model             ┆ dry_mean_miss_s ┆ dry_median_miss_s ┆ all_mean_miss_s ┆ shanghai_mean_miss_s │
+│ ---               ┆ ---             ┆ ---               ┆ ---             ┆ ---                  │
+│ str               ┆ f64             ┆ f64               ┆ f64             ┆ f64                  │
+╞═══════════════════╪═════════════════╪═══════════════════╪═════════════════╪══════════════════════╡
+│ LightGBM baseline ┆ NaN             ┆ NaN               ┆ NaN             ┆ 0.538                │
+│ neural network    ┆ NaN             ┆ NaN               ┆ NaN             ┆ 0.516                │
+└───────────────────┴─────────────────┴───────────────────┴─────────────────┴──────────────────────┘
+
+2. Are the predicted ranges honest? Straight from the network:
+shape: (2, 4)
+┌───────────┬─────────────────────┬─────────────────────┬───────────────────────┐
+│ laps      ┆ target_share_inside ┆ actual_share_inside ┆ typical_range_width_s │
+│ ---       ┆ ---                 ┆ ---                 ┆ ---                   │
+│ str       ┆ f64                 ┆ f64                 ┆ f64                   │
+╞═══════════╪═════════════════════╪═════════════════════╪═══════════════════════╡
+│ dry races ┆ 0.9                 ┆ 0.85                ┆ 2.16                  │
+│ all races ┆ 0.9                 ┆ 0.845               ┆ 2.17                  │
+└───────────┴─────────────────────┴─────────────────────┴───────────────────────┘
+
+3. After widening every spread by 1.145:
+shape: (2, 4)
+┌───────────┬─────────────────────┬─────────────────────┬───────────────────────┐
+│ laps      ┆ target_share_inside ┆ actual_share_inside ┆ typical_range_width_s │
+│ ---       ┆ ---                 ┆ ---                 ┆ ---                   │
+│ str       ┆ f64                 ┆ f64                 ┆ f64                   │
+╞═══════════╪═════════════════════╪═════════════════════╪═══════════════════════╡
+│ dry races ┆ 0.9                 ┆ 0.884               ┆ 2.48                  │
+│ all races ┆ 0.9                 ┆ 0.878               ┆ 2.48                  │
+└───────────┴─────────────────────┴─────────────────────┴───────────────────────┘
+
+Saved the trained network to models\final\lap_time_network.pt
+
+==============================================================================
+2. Race statistics measured on 2022 to 2024
+==============================================================================
+Measured on: train, validation (dry races, no red flags)
+
+Pit loss under green, from 1255 stops. Default for other circuits: 21.97s
+shape: (23, 2)
+┌───────────────────┬────────────┐
+│ circuit           ┆ pit_loss_s │
+│ ---               ┆ ---        │
+│ str               ┆ f64        │
+╞═══════════════════╪════════════╡
+│ Spa-Francorchamps ┆ 18.62      │
+│ Montréal          ┆ 19.32      │
+│ Miami             ┆ 19.82      │
+│ Silverstone       ┆ 19.86      │
+│ Austin            ┆ 20.69      │
+│ Melbourne         ┆ 20.79      │
+│ Budapest          ┆ 21.01      │
+│ Spielberg         ┆ 21.29      │
+│ Jeddah            ┆ 21.3       │
+│ Baku              ┆ 21.85      │
+│ São Paulo         ┆ 21.92      │
+│ Suzuka            ┆ 21.97      │
+│ Yas Island        ┆ 22.66      │
+│ Shanghai          ┆ 22.98      │
+│ Barcelona         ┆ 22.99      │
+│ Las Vegas         ┆ 23.07      │
+│ Zandvoort         ┆ 23.12      │
+│ Mexico City       ┆ 23.65      │
+│ Sakhir            ┆ 24.74      │
+│ Monza             ┆ 25.47      │
+│ Lusail            ┆ 27.44      │
+│ Imola             ┆ 27.91      │
+│ Marina Bay        ┆ 29.27      │
+└───────────────────┴────────────┘
+
+Cost of a stop as a share of a green flag stop (measured on the slow clock -> in racing-speed seconds):
+  safety car 68% -> 47%   (22 laps with group stops)
+  VSC        77% -> 58%   (18 laps)
+
+Safety car: 25 periods in 51 races, typical length 4 laps, laps 49.5% of pole slower than normal.
+  chance of one starting, per lap: {'start': 0.06569, 'early': 0.00774, 'middle': 0.0063, 'late': 0.00424}
+  least likely circuits: [('Barcelona', 0.536), ('Yas Island', 0.571), ('Budapest', 0.626)]
+  most likely circuits:  [('Melbourne', 1.348), ('Jeddah', 1.498), ('Lusail', 1.846)]
+
+VSC: 27 periods in 51 races, typical length 2 laps, laps 35.98% of pole slower than normal.
+  chance of one starting, per lap: {'start': 0.0146, 'early': 0.01032, 'middle': 0.00525, 'late': 0.01271}
+  least likely circuits: [('Barcelona', 0.512), ('Austin', 0.564), ('Budapest', 0.597)]
+  most likely circuits:  [('Baku', 1.476), ('Montréal', 1.588), ('Melbourne', 1.664)]
+
+First lap: each grid slot costs 0.724s, luck of about 3.463s.
+
+Saved to models\final\race_stats.json
+
+==============================================================================
+3. Replay validation: 20 dry 2025 races, real strategies
+==============================================================================
+
+Per race (position_miss: average places a finisher is off by):
+shape: (20, 10)
+┌────────────────────────────────┬────────────────┬───────────┬───────────────┬─────────────────┬─────────────┬──────────────┬──────────────┬──────────────┬────────────┐
+│ race                           ┆ wet_qualifying ┆ finishers ┆ position_miss ┆ grid_order_miss ┆ order_match ┆ winner_right ┆ podium_right ┆ inside_range ┆ gap_miss_s │
+│ ---                            ┆ ---            ┆ ---       ┆ ---           ┆ ---             ┆ ---         ┆ ---          ┆ ---          ┆ ---          ┆ ---        │
+│ str                            ┆ bool           ┆ i64       ┆ f64           ┆ f64             ┆ f64         ┆ bool         ┆ i64          ┆ f64          ┆ f64        │
+╞════════════════════════════════╪════════════════╪═══════════╪═══════════════╪═════════════════╪═════════════╪══════════════╪══════════════╪══════════════╪════════════╡
+│ 2025 Chinese Grand Prix        ┆ false          ┆ 19        ┆ 4.11          ┆ 4.53            ┆ 0.51        ┆ true         ┆ 3            ┆ 0.68         ┆ 15.22      │
+│ 2025 Japanese Grand Prix       ┆ false          ┆ 20        ┆ 1.2           ┆ 0.9             ┆ 0.94        ┆ true         ┆ 3            ┆ 0.9          ┆ 17.4       │
+│ 2025 Bahrain Grand Prix        ┆ false          ┆ 19        ┆ 2.32          ┆ 2.63            ┆ 0.8         ┆ true         ┆ 2            ┆ 0.89         ┆ 5.91       │
+│ 2025 Saudi Arabian Grand Prix  ┆ false          ┆ 18        ┆ 1.0           ┆ 1.33            ┆ 0.96        ┆ false        ┆ 2            ┆ 1.0          ┆ 11.28      │
+│ 2025 Emilia Romagna Grand Prix ┆ false          ┆ 18        ┆ 3.0           ┆ 3.33            ┆ 0.73        ┆ true         ┆ 2            ┆ 0.67         ┆ 6.24       │
+│ 2025 Monaco Grand Prix         ┆ false          ┆ 18        ┆ 2.0           ┆ 1.67            ┆ 0.85        ┆ true         ┆ 3            ┆ 0.61         ┆ 6.54       │
+│ 2025 Spanish Grand Prix        ┆ false          ┆ 17        ┆ 2.0           ┆ 2.12            ┆ 0.83        ┆ true         ┆ 2            ┆ 0.88         ┆ 6.67       │
+│ 2025 Canadian Grand Prix       ┆ false          ┆ 18        ┆ 5.11          ┆ 2.67            ┆ 0.14        ┆ true         ┆ 1            ┆ 0.61         ┆ 1.77       │
+│ 2025 Austrian Grand Prix       ┆ false          ┆ 16        ┆ 1.75          ┆ 1.88            ┆ 0.84        ┆ true         ┆ 3            ┆ 0.88         ┆ 16.63      │
+│ 2025 Hungarian Grand Prix      ┆ false          ┆ 19        ┆ 2.53          ┆ 1.89            ┆ 0.82        ┆ true         ┆ 2            ┆ 0.84         ┆ 10.3       │
+│ 2025 Dutch Grand Prix          ┆ false          ┆ 18        ┆ 3.56          ┆ 4.89            ┆ 0.46        ┆ true         ┆ 2            ┆ 0.78         ┆ 3.48       │
+│ 2025 Italian Grand Prix        ┆ false          ┆ 18        ┆ 2.33          ┆ 2.11            ┆ 0.85        ┆ true         ┆ 1            ┆ 0.78         ┆ 13.91      │
+│ 2025 Azerbaijan Grand Prix     ┆ false          ┆ 19        ┆ 2.21          ┆ 2.0             ┆ 0.86        ┆ true         ┆ 2            ┆ 0.84         ┆ 7.53       │
+│ 2025 Singapore Grand Prix      ┆ false          ┆ 20        ┆ 2.8           ┆ 2.3             ┆ 0.77        ┆ true         ┆ 2            ┆ 0.75         ┆ 18.8       │
+│ 2025 United States Grand Prix  ┆ false          ┆ 19        ┆ 2.63          ┆ 2.32            ┆ 0.82        ┆ true         ┆ 3            ┆ 0.79         ┆ 15.04      │
+│ 2025 Mexico City Grand Prix    ┆ false          ┆ 17        ┆ 2.47          ┆ 2.24            ┆ 0.78        ┆ true         ┆ 2            ┆ 0.59         ┆ 23.15      │
+│ 2025 São Paulo Grand Prix      ┆ false          ┆ 17        ┆ 3.06          ┆ 2.35            ┆ 0.58        ┆ true         ┆ 2            ┆ 0.76         ┆ 8.7        │
+│ 2025 Las Vegas Grand Prix      ┆ true           ┆ 17        ┆ 5.41          ┆ 5.29            ┆ 0.12        ┆ false        ┆ 1            ┆ 0.35         ┆ 40.01      │
+│ 2025 Qatar Grand Prix          ┆ false          ┆ 18        ┆ 2.56          ┆ 2.89            ┆ 0.72        ┆ true         ┆ 2            ┆ 0.78         ┆ 9.67       │
+│ 2025 Abu Dhabi Grand Prix      ┆ false          ┆ 20        ┆ 2.8           ┆ 2.6             ┆ 0.75        ┆ true         ┆ 3            ┆ 0.75         ┆ 12.35      │
+└────────────────────────────────┴────────────────┴───────────┴───────────────┴─────────────────┴─────────────┴──────────────┴──────────────┴──────────────┴────────────┘
+
+Summary. grid_order_miss is the same measure for 'everyone finishes
+where they started', which the simulator has to beat:
+shape: (2, 9)
+┌──────────────────────────┬───────┬───────────────┬─────────────────┬─────────────┬──────────────┬──────────────┬──────────────┬───────────────────┐
+│ races                    ┆ count ┆ position_miss ┆ grid_order_miss ┆ order_match ┆ winner_right ┆ podium_right ┆ inside_range ┆ median_gap_miss_s │
+│ ---                      ┆ ---   ┆ ---           ┆ ---             ┆ ---         ┆ ---          ┆ ---          ┆ ---          ┆ ---               │
+│ str                      ┆ i64   ┆ f64           ┆ f64             ┆ f64         ┆ str          ┆ str          ┆ f64          ┆ f64               │
+╞══════════════════════════╪═══════╪═══════════════╪═════════════════╪═════════════╪══════════════╪══════════════╪══════════════╪═══════════════════╡
+│ dry race, dry qualifying ┆ 19    ┆ 2.6           ┆ 2.45            ┆ 0.74        ┆ 18/19        ┆ 42/57        ┆ 0.78         ┆ 10.3              │
+│ all dry races            ┆ 20    ┆ 2.74          ┆ 2.6             ┆ 0.71        ┆ 18/20        ┆ 43/60        ┆ 0.76         ┆ 10.8              │
+└──────────────────────────┴───────┴───────────────┴─────────────────┴─────────────┴──────────────┴──────────────┴──────────────┴───────────────────┘
+Chart saved to docs\replay_2025.png
+
+==============================================================================
+4. AI strategist retrained on 2022 to 2024 races
+==============================================================================
+round   reward  position  stops  forced  seconds
+    1   -11.18     14.01   1.62   46.2%        2
+   10    -4.82      8.98   1.45    8.9%       12
+   20    -4.17      8.35   1.31    0.7%       24
+   30    -4.13      8.22   1.27    0.2%       36
+   40    -4.04      8.21   1.28    0.2%       48
+   50    -3.93      8.04   1.31    0.2%       59
+   60    -4.04      8.15   1.32    0.3%       71
+   70    -4.00      8.09   1.31    0.3%       83
+   80    -3.88      8.03   1.29    0.3%       95
+   90    -3.88      8.04   1.28    0.2%      107
+  100    -4.05      8.14   1.25    0.1%      119
+  110    -3.96      8.08   1.26    0.3%      130
+  120    -3.98      8.18   1.23    0.3%      143
+  130    -3.92      7.98   1.24    0.0%      155
+  140    -3.93      8.09   1.25    0.1%      166
+  150    -3.79      7.93   1.26    0.2%      178
+
+Saved the strategist to models\final\strategist.pt
+
+==============================================================================
+5. Brute force best fixed strategies on 2025
+==============================================================================
+  2025 Chinese Grand Prix            done  (72s so far)
+  2025 Japanese Grand Prix           done  (144s so far)
+  2025 Bahrain Grand Prix            done  (220s so far)
+  2025 Saudi Arabian Grand Prix      done  (282s so far)
+  2025 Emilia Romagna Grand Prix     done  (361s so far)
+  2025 Monaco Grand Prix             done  (461s so far)
+  2025 Spanish Grand Prix            done  (540s so far)
+  2025 Canadian Grand Prix           done  (628s so far)
+  2025 Austrian Grand Prix           done  (707s so far)
+  2025 Hungarian Grand Prix          done  (800s so far)
+  2025 Dutch Grand Prix              done  (892s so far)
+  2025 Italian Grand Prix            done  (958s so far)
+  2025 Azerbaijan Grand Prix         done  (1024s so far)
+  2025 Singapore Grand Prix          done  (1111s so far)
+  2025 United States Grand Prix      done  (1184s so far)
+  2025 Mexico City Grand Prix        done  (1269s so far)
+  2025 São Paulo Grand Prix          done  (1354s so far)
+  2025 Las Vegas Grand Prix          done  (1414s so far)
+  2025 Qatar Grand Prix              done  (1485s so far)
+  2025 Abu Dhabi Grand Prix          done  (1565s so far)
+
+==============================================================================
+6. AI strategist on 2025, against real teams and fixed strategies
+==============================================================================
+  2025 Chinese Grand Prix            done
+  2025 Japanese Grand Prix           done
+  2025 Bahrain Grand Prix            done
+  2025 Saudi Arabian Grand Prix      done
+  2025 Emilia Romagna Grand Prix     done
+  2025 Monaco Grand Prix             done
+  2025 Spanish Grand Prix            done
+  2025 Canadian Grand Prix           done
+  2025 Austrian Grand Prix           done
+  2025 Hungarian Grand Prix          done
+  2025 Dutch Grand Prix              done
+  2025 Italian Grand Prix            done
+  2025 Azerbaijan Grand Prix         done
+  2025 Singapore Grand Prix          done
+  2025 United States Grand Prix      done
+  2025 Mexico City Grand Prix        done
+  2025 São Paulo Grand Prix          done
+  2025 Las Vegas Grand Prix          done
+  2025 Qatar Grand Prix              done
+  2025 Abu Dhabi Grand Prix          done
+
+1. Against what the teams really did (simulated, real race conditions).
+   Positive means better than the team:
+shape: (5, 6)
+┌────────────────────────────────────┬──────────────┬───────────────┬────────────────┬──────────────────┬─────────────────┐
+│ strategy                           ┆ driver_races ┆ places_gained ┆ seconds_gained ┆ better_than_team ┆ worse_than_team │
+│ ---                                ┆ ---          ┆ ---           ┆ ---            ┆ ---              ┆ ---             │
+│ str                                ┆ i64          ┆ f64           ┆ f64            ┆ str              ┆ str             │
+╞════════════════════════════════════╪══════════════╪═══════════════╪════════════════╪══════════════════╪═════════════════╡
+│ best fixed plan (before the race)  ┆ 350          ┆ 1.57          ┆ 10.5           ┆ 73%              ┆ 11%             │
+│ best fixed plan (hindsight)        ┆ 350          ┆ 2.19          ┆ 12.4           ┆ 87%              ┆ 0%              │
+│ AI strategist                      ┆ 350          ┆ 1.02          ┆ 7.0            ┆ 63%              ┆ 21%             │
+│ best fixed plan, team's tyres only ┆ 350          ┆ 1.33          ┆ 8.2            ┆ 66%              ┆ 11%             │
+│ AI strategist, team's tyres only   ┆ 350          ┆ 1.01          ┆ 6.0            ┆ 61%              ┆ 18%             │
+└────────────────────────────────────┴──────────────┴───────────────┴────────────────┴──────────────────┴─────────────────┘
+
+2. The same, split by whether the race had a safety car or VSC:
+shape: (10, 6)
+┌─────────────────────────────────────────────┬──────────────┬───────────────┬────────────────┬──────────────────┬─────────────────┐
+│ strategy                                    ┆ driver_races ┆ places_gained ┆ seconds_gained ┆ better_than_team ┆ worse_than_team │
+│ ---                                         ┆ ---          ┆ ---           ┆ ---            ┆ ---              ┆ ---             │
+│ str                                         ┆ i64          ┆ f64           ┆ f64            ┆ str              ┆ str             │
+╞═════════════════════════════════════════════╪══════════════╪═══════════════╪════════════════╪══════════════════╪═════════════════╡
+│ with: best fixed plan (before the race)     ┆ 235          ┆ 1.5           ┆ 8.8            ┆ 64%              ┆ 16%             │
+│ with: best fixed plan (hindsight)           ┆ 235          ┆ 2.39          ┆ 11.3           ┆ 85%              ┆ 0%              │
+│ with: AI strategist                         ┆ 235          ┆ 0.9           ┆ 5.3            ┆ 55%              ┆ 27%             │
+│ with: best fixed plan, team's tyres only    ┆ 235          ┆ 1.33          ┆ 6.9            ┆ 61%              ┆ 16%             │
+│ with: AI strategist, team's tyres only      ┆ 235          ┆ 1.01          ┆ 5.0            ┆ 58%              ┆ 24%             │
+│ without: best fixed plan (before the race)  ┆ 115          ┆ 1.72          ┆ 14.0           ┆ 90%              ┆ 0%              │
+│ without: best fixed plan (hindsight)        ┆ 115          ┆ 1.8           ┆ 14.7           ┆ 92%              ┆ 0%              │
+│ without: AI strategist                      ┆ 115          ┆ 1.27          ┆ 10.5           ┆ 78%              ┆ 8%              │
+│ without: best fixed plan, team's tyres only ┆ 115          ┆ 1.34          ┆ 10.8           ┆ 77%              ┆ 0%              │
+│ without: AI strategist, team's tyres only   ┆ 115          ┆ 1.0           ┆ 8.1            ┆ 69%              ┆ 5%              │
+└─────────────────────────────────────────────┴──────────────┴───────────────┴────────────────┴──────────────────┴─────────────────┘
+
+3. Exploit checks: does the strategist behave like a real team?
+shape: (7, 3)
+┌─────────────────────────────────────────────┬────────────┬───────────────┐
+│ check                                       ┆ real_teams ┆ ai_strategist │
+│ ---                                         ┆ ---        ┆ ---           │
+│ str                                         ┆ f64        ┆ f64           │
+╞═════════════════════════════════════════════╪════════════╪═══════════════╡
+│ stops per race                              ┆ 1.72       ┆ 1.32          │
+│ share of stops made under safety car or VSC ┆ 0.246      ┆ 0.174         │
+│ longest stint (laps)                        ┆ 33.346     ┆ 33.954        │
+│ share of laps on soft                       ┆ 0.14       ┆ 0.232         │
+│ share of laps on medium                     ┆ 0.418      ┆ 0.425         │
+│ share of laps on hard                       ┆ 0.442      ┆ 0.343         │
+│ races needing a forced last lap stop        ┆ 0.0        ┆ 0.002         │
+└─────────────────────────────────────────────┴────────────┴───────────────┘
+
+4. Examples (first simulation of each):
+shape: (8, 8)
+┌──────────────────────────┬────────┬────────────────────────────┬────────────────────────────┬───────────────────────────┬──────────────┬───────────────┬───────────────┐
+│ Race                     ┆ Driver ┆ RealStrategy               ┆ FixedStrategy              ┆ AgentExample              ┆ RealPosition ┆ FixedPosition ┆ AgentPosition │
+│ ---                      ┆ ---    ┆ ---                        ┆ ---                        ┆ ---                       ┆ ---          ┆ ---           ┆ ---           │
+│ str                      ┆ str    ┆ str                        ┆ str                        ┆ str                       ┆ f64          ┆ f64           ┆ f64           │
+╞══════════════════════════╪════════╪════════════════════════════╪════════════════════════════╪═══════════════════════════╪══════════════╪═══════════════╪═══════════════╡
+│ Mexico City Grand Prix   ┆ GAS    ┆ MEDIUM, lap 33 SOFT        ┆ MEDIUM, lap 20 SOFT, lap   ┆ MEDIUM, lap 32 HARD       ┆ 15.0         ┆ 13.7          ┆ 14.3          │
+│                          ┆        ┆                            ┆ 46 SOFT                    ┆                           ┆              ┆               ┆               │
+│ United States Grand Prix ┆ TSU    ┆ MEDIUM, lap 29 SOFT        ┆ MEDIUM, lap 30 SOFT        ┆ MEDIUM, lap 31 HARD       ┆ 11.4         ┆ 11.3          ┆ 12.3          │
+│ Japanese Grand Prix      ┆ OCO    ┆ HARD, lap 32 MEDIUM        ┆ HARD, lap 36 SOFT          ┆ HARD, lap 38 MEDIUM       ┆ 17.7         ┆ 17.3          ┆ 17.7          │
+│ United States Grand Prix ┆ GAS    ┆ MEDIUM, lap 27 SOFT        ┆ MEDIUM, lap 31 SOFT        ┆ MEDIUM, lap 31 HARD       ┆ 14.0         ┆ 12.8          ┆ 13.8          │
+│ Saudi Arabian Grand Prix ┆ ALB    ┆ MEDIUM, lap 22 HARD        ┆ MEDIUM, lap 27 HARD        ┆ MEDIUM, lap 33 SOFT       ┆ 8.8          ┆ 8.5           ┆ 8.9           │
+│ Italian Grand Prix       ┆ COL    ┆ MEDIUM, lap 33 HARD        ┆ MEDIUM, lap 29 SOFT        ┆ MEDIUM, lap 31 SOFT       ┆ 12.9         ┆ 11.9          ┆ 12.5          │
+│ Abu Dhabi Grand Prix     ┆ STR    ┆ HARD, lap 42 MEDIUM        ┆ HARD, lap 40 SOFT          ┆ HARD, lap 39 MEDIUM       ┆ 12.2         ┆ 11.2          ┆ 11.7          │
+│ Dutch Grand Prix         ┆ TSU    ┆ SOFT, lap 19 HARD, lap 53  ┆ SOFT, lap 31 HARD          ┆ SOFT, lap 23 MEDIUM, lap  ┆ 9.9          ┆ 11.2          ┆ 10.0          │
+│                          ┆        ┆ SOFT                       ┆                            ┆ 53 SOFT                   ┆              ┆               ┆               │
+└──────────────────────────┴────────┴────────────────────────────┴────────────────────────────┴───────────────────────────┴──────────────┴───────────────┴───────────────┘
+Chart saved to docs\strategist_2025.png
+
+==============================================================================
+7. Race files for the website
+==============================================================================
+Saved 39 races to app_data\races.pkl (0.6 MB)
+
+Final test complete. Marker written to results\final_test_done.txt.
