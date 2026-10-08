@@ -54,3 +54,31 @@ much the model degrades when the cars change.
 script can simply be run again: it skips races already saved. Parquet keeps
 column types (unlike CSV) and Polars reads it very fast. Times are stored as
 plain seconds because they are easier to do arithmetic on than time objects.
+
+## 6. Fuel is represented by laps remaining
+
+Real fuel load is not public. Cars start with enough fuel for the race and
+burn it at a roughly steady rate, so `LapsRemaining` (total laps minus lap
+number) falls in step with fuel weight. Limitation: it cannot see fuel saving
+or a car that started under-fuelled.
+
+## 7. Traffic is the gap to the car ahead on the road, at the start of the lap
+
+`GapAhead` uses the car physically in front, even if it is a lap down, because
+dirty air affects pace regardless of race position. It is measured at the
+start of the lap (the end of the previous lap). The gap at the end of a lap is
+partly decided by that lap's own time, so using it as an input would hand the
+model part of the answer (this is called target leakage).
+
+## 8. "Clean laps" are separated from everything else
+
+The lap time model learns only from laps marked `IsCleanLap`: a recorded and
+accurate lap time, green track, not a pit in or pit out lap, not lap 1, on a
+dry tyre with a known age. About 79% of 2022 to 2024 laps qualify. The
+excluded laps are slow for reasons the lap time model should not explain (pit
+lane, safety car, standing start, rain); the simulator handles those
+separately with pit loss and safety car models.
+
+Known and still open: about 0.5% of clean laps are more than 7% slower than
+the race's typical lap (mistakes, damage, a drying track). Whether and how to
+filter them is decided in the modelling step, using 2024 validation scores.
