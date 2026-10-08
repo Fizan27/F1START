@@ -47,6 +47,27 @@ lap, on 21,354 clean laps from 2024:
 | Basic + temperatures | 0.748 | 0.555 | 0.801 | 0.843 |
 | **Basic + circuit (chosen)** | **0.632** | **0.451** | **0.675** | **0.518** |
 
+### Lap time network (PyTorch, trained on the GPU)
+
+A small neural network that predicts a range for each lap: a centre and a
+spread. Same laps, same inputs and same scoring code as the baseline.
+Reproduce with `train_network.py`. Miss in seconds per lap on 2024:
+
+| Model | Dry races, mean | Dry races, median | All races, mean | Shanghai (unseen circuit), mean |
+|---|---|---|---|---|
+| LightGBM baseline | 0.632 | 0.451 | 0.675 | **0.518** |
+| Neural network | **0.619** | **0.435** | **0.665** | 0.544 |
+
+The network is slightly more accurate overall (about 2% on dry races) and
+slightly worse at the unseen circuit. Its real advantage is the range:
+
+| Laps | Should fall inside the 90% range | Do fall inside | Typical range width |
+|---|---|---|---|
+| Dry races | 90% | 86.6% | 2.21s |
+| All races | 90% | 85.7% | 2.22s |
+
+So the network is a little overconfident: its ranges are too narrow.
+
 Weaknesses measured so far:
 
 - The first version predicted lap time against the pole lap directly and was
@@ -75,6 +96,9 @@ py -3.12 -m venv .venv
 
 .venv\Scripts\python.exe check_gpu.py        # proves training runs on the GPU
 .venv\Scripts\python.exe download_data.py    # downloads 2022 to 2025 races into data/raw/
+.venv\Scripts\python.exe clean_data.py       # builds data/laps.parquet
+.venv\Scripts\python.exe train_baseline.py   # LightGBM baseline, scored on 2024
+.venv\Scripts\python.exe train_network.py    # neural network on the GPU, scored on 2024
 .venv\Scripts\python.exe -m pytest           # runs the tests
 ```
 

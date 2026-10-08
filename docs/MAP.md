@@ -35,7 +35,7 @@ is added.
         |                2022-23, scored on 2024. Compares input choices and
         |                prints error tables; saves nothing yet.
         v
- train_network.py        step 4 (IN PROGRESS, has TODO(human) lines): PyTorch
+ train_network.py        step 4: PyTorch
         |                network on the GPU that predicts a range of lap
         |                times. Imports train_baseline.py so both models
         |                are loaded and scored by the same code.
@@ -74,6 +74,7 @@ Car pace comes from `QualiGapPct`, from `data/raw/qualifying.parquet`
 | `test_clean_data.py` | Tests for `clean_data.py` | nothing | pass/fail |
 | `train_baseline.py` | LightGBM baseline lap time model | `data/laps.parquet` | printed error tables |
 | `train_network.py` | Neural network that predicts a range | `data/laps.parquet`, uses `train_baseline.py` | `models/lap_time_network.pt`, printed comparison |
+| `test_train_network.py` | Tests for `train_network.py` | nothing | pass/fail |
 | `requirements.txt` | The libraries to install | | |
 | `CLAUDE.md` | The rules for how this project is built | | |
 | `docs/MAP.md` | This map | | |

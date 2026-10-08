@@ -15,8 +15,10 @@
 #
 # Run:  .venv\Scripts\python.exe train_network.py
 #
-# This is a TEACHING file. Four places are marked TODO(human): 1 the layers,
-# 2 the loss, 3 one training step, 4 checking against the baseline.
+# The four parts worth understanding well, each explained where it appears:
+#   1. the layers (LapTimeNetwork)      3. one training step (train_step)
+#   2. the loss for a range (range_loss) 4. the check against the baseline
+#                                           (score_network, share_inside_range)
 
 from pathlib import Path
 
@@ -58,13 +60,6 @@ SEED = 0  # makes the run repeatable
 # laps, IF the network's spreads are honest. That is checked in TODO 4.
 RANGE_SPREADS = 1.645
 RANGE_TARGET = 0.90
-
-
-def done(value, todo: str):
-    """Stop with a clear message if a TODO(human) still returns '...'."""
-    if value is ...:
-        raise SystemExit(f"TODO(human) {todo} is not done yet.")
-    return value
 
 
 # --------------------------------------------------------------------------
@@ -122,26 +117,20 @@ class LapTimeNetwork(nn.Module):
         self.circuit_numbers = nn.Embedding(circuit_count + 1, CIRCUIT_NUMBERS)
         input_size = len(NUMBER_INPUTS) + len(COMPOUND_NAMES) + CIRCUIT_NUMBERS
 
-        # TODO(human) 1: build the layers.
-        #   A layer, nn.Linear(inputs, outputs), multiplies its inputs by
-        #   weights and adds them up: it can only draw straight lines.
-        #   nn.ReLU() after it turns negative values into zero. That small
-        #   kink is what lets a stack of layers learn curves, like tyres
-        #   wearing slowly at first and then falling off a cliff.
-        #   nn.Sequential(...) runs the layers one after another.
-        #   Build this stack:
-        #     Linear from input_size to 64, then ReLU
-        #     Linear from 64 to 64,         then ReLU
-        #     Linear from 64 to 2           (no ReLU after the last one)
-        #   Why 2 outputs? One is the centre, the other the spread.
-        #   Why no ReLU at the end? The centre must be free to go negative
-        #   (a lap faster than the race's typical lap).
-        #   Shape of the answer:
-        #       self.layers = nn.Sequential(
-        #           nn.Linear(input_size, 64), nn.ReLU(),
-        #           ...
-        #       )
-        self.layers = ...
+        # A layer, nn.Linear(inputs, outputs), multiplies its inputs by
+        # weights and adds them up: alone it can only draw straight lines.
+        # nn.ReLU() after it turns negative values into zero. That small
+        # kink is what lets a stack of layers learn curves, like tyres
+        # wearing slowly at first and then falling off a cliff.
+        # nn.Sequential runs the layers one after another.
+        self.layers = nn.Sequential(
+            nn.Linear(input_size, 64), nn.ReLU(),
+            nn.Linear(64, 64), nn.ReLU(),
+            # Two outputs: the centre and the (log) spread. No ReLU here,
+            # because the centre must be free to go negative (a lap faster
+            # than the race's typical lap).
+            nn.Linear(64, 2),
+        )
 
     def forward(self, numbers, compound, circuit):
         """Returns (centre, log_spread) for every lap given."""
@@ -164,25 +153,22 @@ class LapTimeNetwork(nn.Module):
 
 def range_loss(centre, log_spread, actual):
     """Average loss over a batch of laps. Lower is better."""
-    # TODO(human) 2: write the loss for predicting a range.
-    #   With one number, the loss is simple: how far off was it. With a
-    #   range, the network could cheat in two ways, and the loss has two
-    #   parts that block one cheat each:
-    #     part A:  log_spread
-    #         Punishes wide ranges. Without it the network would say "the
-    #         lap is somewhere between 0 and 1000 seconds" and never be wrong.
-    #     part B:  0.5 * ((actual - centre) / spread) ** 2
-    #         The miss, measured in spreads, squared. Missing by 1 second is
-    #         a disaster if you claimed a spread of 0.1 (10 spreads away) but
-    #         fine if you claimed 2 (half a spread). Punishes overconfidence.
-    #   The only way to make both small is an honest spread: narrow where
-    #   laps are predictable, wide where they are not.
-    #   (This is the "Gaussian negative log likelihood".)
-    #   Two lines:
-    #     1. get the spread from its log:   spread = torch.exp(log_spread)
-    #     2. return the average over the batch of (part A + part B),
-    #        using .mean()
-    return ...
+    # With one number, the loss is simple: how far off was it. With a range,
+    # the network could cheat in two ways, and the loss has two parts that
+    # block one cheat each:
+    #   wide_penalty: punishes wide ranges. Without it the network would say
+    #     "the lap is somewhere between 0 and 1000 seconds" and never be wrong.
+    #   miss_penalty: the miss, measured in spreads, squared. Missing by 1
+    #     second is a disaster if you claimed a spread of 0.1 (10 spreads
+    #     away) but fine if you claimed 2 (half a spread). It punishes
+    #     overconfidence.
+    # The only way to make both small is an honest spread: narrow where laps
+    # are predictable, wide where they are not.
+    # (Its proper name is the "Gaussian negative log likelihood".)
+    spread = torch.exp(log_spread)
+    wide_penalty = log_spread
+    miss_penalty = 0.5 * ((actual - centre) / spread) ** 2
+    return (wide_penalty + miss_penalty).mean()
 
 
 # --------------------------------------------------------------------------
@@ -191,23 +177,20 @@ def range_loss(centre, log_spread, actual):
 
 def train_step(model, optimizer, batch) -> float:
     """Learn from one batch of laps. Returns the loss, to watch it fall."""
-    # TODO(human) 3: the four steps that every neural network training uses.
-    #   1. PREDICT:
-    #        centre, log_spread = model(batch["numbers"], batch["compound"],
-    #                                   batch["circuit"])
-    #   2. MEASURE the error with your range_loss, against batch["actual"]:
-    #        loss = range_loss(...)
-    #   3. FIND each weight's share of the blame. First clear the blame left
-    #      from the previous batch, then work it out for this one:
-    #        optimizer.zero_grad()
-    #        loss.backward()
-    #      (backward() is "backpropagation": it works backwards through the
-    #      layers to find how much each weight contributed to the error.)
-    #   4. UPDATE every weight a small step in the direction that reduces
-    #      the error:
-    #        optimizer.step()
-    #   Then return the loss as a plain number:  return loss.item()
-    return ...
+    # The four steps that every neural network training uses.
+    # 1. PREDICT.
+    centre, log_spread = model(batch["numbers"], batch["compound"], batch["circuit"])
+    # 2. MEASURE the error.
+    loss = range_loss(centre, log_spread, batch["actual"])
+    # 3. FIND each weight's share of the blame. First clear the blame left
+    #    over from the previous batch, then work it out for this one.
+    #    backward() is "backpropagation": it works backwards through the
+    #    layers to find how much each weight contributed to the error.
+    optimizer.zero_grad()
+    loss.backward()
+    # 4. UPDATE every weight a small step in the direction that reduces it.
+    optimizer.step()
+    return loss.item()
 
 
 def hide_some_circuits(circuit):
@@ -227,11 +210,7 @@ def average_loss(model, data) -> float:
 def train_network(train_data: dict, validation_data: dict, circuit_count: int):
     """Train for EPOCHS passes over the training laps. Returns the model."""
     torch.manual_seed(SEED)
-    model = LapTimeNetwork(circuit_count)
-    done(model.layers, "1")
-    model.to(DEVICE)
-    one = torch.ones(1)
-    done(range_loss(one, one, one), "2")
+    model = LapTimeNetwork(circuit_count).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     lap_count = len(train_data["actual"])
 
@@ -244,7 +223,7 @@ def train_network(train_data: dict, validation_data: dict, circuit_count: int):
             rows = order[start:start + BATCH_SIZE]
             batch = {name: values[rows] for name, values in train_data.items()}
             batch["circuit"] = hide_some_circuits(batch["circuit"])
-            done(train_step(model, optimizer, batch), "3")
+            train_step(model, optimizer, batch)
         if epoch == 1 or epoch % 5 == 0:
             # If the training loss keeps falling while the validation loss
             # stops falling or rises, the network has started memorising
@@ -268,27 +247,21 @@ def predict(model, data: dict) -> tuple[np.ndarray, np.ndarray]:
 
 def score_network(validation: pl.DataFrame, centre: np.ndarray) -> dict:
     """Score the network's centre exactly as the baseline was scored."""
-    # TODO(human) 4a: two steps, both reusing functions from train_baseline.py
-    #   so that the two models are judged by the same code.
-    #   1. Attach the predictions to the laps:
-    #        scored = baseline.add_predictions(validation, centre)
-    #   2. Return one row of the comparison table:
-    #        return baseline.score("neural network", scored)
-    return ...
+    # Both steps reuse functions from train_baseline.py, so the two models
+    # are judged by the same code and the comparison cannot be skewed.
+    scored = baseline.add_predictions(validation, centre)
+    return baseline.score("neural network", scored)
 
 
 def share_inside_range(centre, spread, actual) -> float:
     """What share of real laps fell inside the predicted range?"""
-    # TODO(human) 4b: check whether the spreads are honest.
-    #   The range for each lap runs from
-    #        low  = centre - RANGE_SPREADS * spread
-    #   to   high = centre + RANGE_SPREADS * spread
-    #   A lap is inside if  (actual >= low) & (actual <= high)   <- note the
-    #   single & and the brackets: that is how "and" is written for arrays.
-    #   np.mean(...) of those True/False values is the share that are True.
-    #   If the spreads are honest the answer is close to 0.90. Well below
-    #   means the network is overconfident; well above means too cautious.
-    return ...
+    # This checks whether the spreads are honest. If they are, the answer is
+    # close to 0.90. Well below means the network is overconfident; well
+    # above means it is too cautious.
+    low = centre - RANGE_SPREADS * spread
+    high = centre + RANGE_SPREADS * spread
+    # The mean of True/False values is the share that are True.
+    return np.mean((actual >= low) & (actual <= high))
 
 
 def baseline_row(train: pl.DataFrame, validation: pl.DataFrame) -> dict:
@@ -306,9 +279,9 @@ def range_table(validation: pl.DataFrame, centre, spread) -> pl.DataFrame:
     )
     rows = []
     for name, part in [("dry races", laps.filter(~pl.col("IsWetRace"))), ("all races", laps)]:
-        inside = done(share_inside_range(
+        inside = share_inside_range(
             part["Centre"].to_numpy(), part["Spread"].to_numpy(), part[TARGET].to_numpy()
-        ), "4b")
+        )
         width = 2 * RANGE_SPREADS * part["Spread"] * part["PoleTime"] / 100
         rows.append({
             "laps": name,
@@ -345,9 +318,8 @@ def main():
     model = train_network(train_data, like_for_like, len(scaling["circuits"]))
     centre, spread = predict(model, validation_data)
 
-    network_row = done(score_network(validation, centre), "4a")
     print("\n1. Pace within the race, on 2024 (validation). Miss in seconds per lap:")
-    print(pl.DataFrame([baseline_row(train, validation), network_row]))
+    print(pl.DataFrame([baseline_row(train, validation), score_network(validation, centre)]))
     print("\n2. Are the predicted ranges honest?")
     print(range_table(validation, centre, spread))
     save_model(model, scaling)
