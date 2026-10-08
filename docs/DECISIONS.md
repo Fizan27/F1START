@@ -182,3 +182,35 @@ point 0.37 x 240 without any maths. Each file is about 2 KB.
 Only circuits raced since 2018 have an outline, because that is where FastF1's
 position data starts. Fantasy races on the website are limited to those
 circuits. The most recent layout is used when a circuit has changed.
+
+## 14. What the cleaned data showed, and the weaknesses it exposed
+
+Measured by `clean_history.py` on data downloaded 2026-10-09 (1950 to round 16
+of 2026): 1,165 races, 789 drivers who started a race, 15,843 teammate pairs
+across 2,828 different pairings.
+
+- **The eras are linked.** 643 of the 655 drivers who ever had a teammate are
+  in one connected group: there is a chain of shared teammates between any two
+  of them. This is what makes comparing Fangio with Verstappen possible at
+  all. The other 12 cannot be rated against the rest, and 134 drivers never
+  had a teammate.
+- **Retirement reasons stop in 2023.** From 2023 the source records only
+  "Retired", with no reason (53 of 2023's retirements, and every one in 2024,
+  2025 and 2026). FastF1's results have the same gap. Under decision 7 these
+  are `other`, so those races are not comparable for that pair. The effect:
+  from 2023 a driver's own crashes no longer count against them in race
+  comparisons. This covers both test seasons, and it favours crash-prone
+  current drivers slightly. It is reported, not patched: guessing reasons from
+  other sources would be inventing data. Qualifying comparisons are unaffected.
+- **Reliability changed enormously.** Car caused retirements were 37% of
+  starts in the 1950s, 40% in the 1980s and 3% in the 2020s. So only about 40%
+  of teammate pairs before 1990 give a comparable race result, against about
+  80% since 2010. Older drivers have less evidence per race, which is a real
+  reason for their uncertainty to be wider.
+- **Many-car constructors.** 4,121 pairs come from a constructor with more
+  than three cars in the race, 3,518 of them before 1970 (decision 8).
+- **Qualifying times are patchy from 1996 to 2002.** Between 6% and 59% of
+  results in those seasons have a lap time; from 2003 it is 94% or more.
+  Qualifying position (or grid) exists throughout.
+- **Test seasons.** 2024 and 2025 have 472 teammate pairs: 376 with a
+  comparable race result and 451 with a qualifying gap.

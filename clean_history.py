@@ -44,7 +44,7 @@ DID_NOT_START = {
 OTHER = {
     "Disqualified", "Retired", "Not classified", "Illness", "Injury", "Injured",
     "Driver unwell", "Physical", "Eye injury", "Safety concerns", "Safety",
-    "Underweight", "Debris", "Puncture", "Damage", "Broken wing",
+    "Underweight", "Debris", "Puncture", "Tyre puncture", "Damage", "Broken wing",
 }
 
 # What every race would have paid under today's points system. Used so that
