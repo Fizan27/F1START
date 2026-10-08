@@ -11,6 +11,8 @@
 #     2024_05_weather.parquet  about one row per minute: air and track
 #                              temperature, rain, wind
 #     2024_05_results.parquet  one row per driver: grid and finishing position
+#   plus one file for all races together:
+#     qualifying.parquet       one row per driver per race: best qualifying lap
 # Which files use it: clean_data.py reads data/raw/ (the next step).
 #
 # Run:  .venv\Scripts\python.exe download_data.py
@@ -25,12 +27,14 @@ from pathlib import Path
 import fastf1
 import pandas as pd
 import polars as pl
+from fastf1.ergast import Ergast
 from fastf1.exceptions import RateLimitExceededError
 
 SEASONS = [2022, 2023, 2024, 2025]  # why these: see docs/DECISIONS.md, number 4
 RATE_LIMIT_WAIT_MINUTES = 10
 RAW_FOLDER = Path("data/raw")
 CACHE_FOLDER = Path("data/fastf1_cache")
+QUALIFYING_FILE = RAW_FOLDER / "qualifying.parquet"
 
 RESULT_COLUMNS = [
     "DriverNumber", "Abbreviation", "TeamName", "GridPosition", "Position",
@@ -98,6 +102,45 @@ def rounds_in_season(year: int) -> list[int]:
     return [int(number) for number in schedule["RoundNumber"]]
 
 
+def qualifying_for_season(year: int) -> pl.DataFrame:
+    """Each driver's best qualifying lap (seconds) for every race of a season.
+
+    Qualifying happens the day before the race, so these times are known
+    before lap 1. That makes them a safe yardstick for race pace: they cannot
+    leak anything about how the race itself went.
+    """
+    tables = []
+    page = Ergast().get_qualifying_results(season=year, limit=100)
+    while page is not None:
+        for (_, race), drivers in zip(page.description.iterrows(), page.content):
+            # A driver's best lap can come from any of the three parts (Q1,
+            # Q2, Q3); slower drivers are knocked out before the later parts.
+            parts = drivers.reindex(columns=["Q1", "Q2", "Q3"])
+            seconds = parts.apply(lambda part: pd.to_timedelta(part, errors="coerce").dt.total_seconds())
+            tables.append(pl.DataFrame({
+                "Year": year,
+                "Round": int(race["round"]),
+                "Driver": drivers["driverCode"].to_list(),
+                "BestQualiTime": seconds.min(axis=1).to_list(),
+            }, schema_overrides={"BestQualiTime": pl.Float64}))
+        try:
+            page = page.get_next_result_page()  # results arrive 100 rows at a time
+        except ValueError:
+            page = None  # no more pages
+    return pl.concat(tables)
+
+
+def save_qualifying():
+    """Save data/raw/qualifying.parquet for all seasons (skipped if present)."""
+    if QUALIFYING_FILE.exists():
+        print("qualifying  already saved, skipping")
+        return
+    seasons = [patiently(qualifying_for_season, year) for year in SEASONS]
+    qualifying = pl.concat(seasons)
+    qualifying.write_parquet(QUALIFYING_FILE)
+    print(f"qualifying  {qualifying.height} driver results saved")
+
+
 def patiently(function, *arguments):
     """Call a download function; if the hourly limit is hit, wait and retry.
 
@@ -117,6 +160,8 @@ def main():
     CACHE_FOLDER.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(CACHE_FOLDER))
     logging.getLogger("fastf1").setLevel(logging.ERROR)  # hide progress chatter
+
+    save_qualifying()
 
     failed = []
     for year in SEASONS:

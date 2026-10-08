@@ -79,6 +79,46 @@ excluded laps are slow for reasons the lap time model should not explain (pit
 lane, safety car, standing start, rain); the simulator handles those
 separately with pit loss and safety car models.
 
+## 9. The target is lap time as percent slower than pole (`LapTimePct`)
+
+Raw lap times are dominated by the circuit (about 66s at Spielberg, 105s at
+Spa). A model could score well on raw times by memorising circuit lengths
+while learning nothing about tyres, fuel or traffic, which are worth tenths.
+Dividing by a yardstick removes the circuit. Two yardsticks were considered:
+
+- The race's own typical lap: rejected, because it is computed from the whole
+  race, including laps after the one being predicted (target leakage).
+- The weekend's pole lap: chosen, because qualifying is finished before the
+  race starts, so it cannot leak anything about the race.
+
+Percent, not seconds, so that the same effect is the same size at short and
+long circuits.
+
+Measured weakness: when qualifying was wet and the race dry, pole is a bad
+yardstick. In 2022 to 2024 this affects four races (Silverstone 2022, Montréal
+2022 and 2023, Spa 2024), where the typical race lap is faster than pole.
+
+## 10. Car and driver pace comes from the qualifying gap (`QualiGapPct`)
+
+Team and driver names are not model inputs: what a name means changes between
+seasons (the fastest team of 2022 to 2023 is not the fastest of 2024). A
+driver's average pace in the race being predicted is not used either, because
+it is built from later laps. The qualifying gap to pole is known before lap 1,
+is specific to that car at that track on that weekend, and works for rookies.
+
+Gaps above 5% are treated as missing (rain or a ruined lap, not car pace) and
+filled with the team-mate's gap. About 2% of clean laps still have no value.
+Limitation: one-lap pace is not race pace. Possible later addition: each
+team's race pace from earlier races in the same season.
+
+## 11. Unseen circuits: the first baseline has no circuit input
+
+Shanghai appears in 2024 (validation) but not in 2022 to 2023 (training).
+Because the target and inputs mean the same thing at every circuit, the model
+can predict there without recognising the track. Circuit as an input is then
+tested as an experiment on 2024, with Shanghai's error always reported
+separately as the "new circuit" result.
+
 Known and still open: about 0.5% of clean laps are more than 7% slower than
 the race's typical lap (mistakes, damage, a drying track). Whether and how to
 filter them is decided in the modelling step, using 2024 validation scores.

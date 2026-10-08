@@ -31,9 +31,14 @@ is added.
                          Everything after this reads only this file.
         |
         v
- baseline model          step 3 (NEXT, not built yet): LightGBM lap time
-                         baseline, trained on 2022-23, scored on 2024
+ train_baseline.py       step 3 (IN PROGRESS, has TODO(human) lines): LightGBM
+                         lap time baseline, trained on 2022-23, scored on
+                         2024. Prints error tables; saves nothing yet.
 ```
+
+The model's target is `LapTimePct` (percent slower than the weekend's pole
+lap) and car pace comes from `QualiGapPct`. Both are built in `clean_data.py`
+from `data/raw/qualifying.parquet`. Why: DECISIONS.md 9 and 10.
 
 ## The season split (never mix these up)
 
@@ -52,6 +57,7 @@ is added.
 | `test_download_data.py` | Tests for `download_data.py` | nothing | pass/fail |
 | `clean_data.py` | Builds the one clean lap table | `data/raw/*.parquet` | `data/laps.parquet` |
 | `test_clean_data.py` | Tests for `clean_data.py` | nothing | pass/fail |
+| `train_baseline.py` | LightGBM baseline lap time model | `data/laps.parquet` | printed error tables |
 | `requirements.txt` | The libraries to install | | |
 | `CLAUDE.md` | The rules for how this project is built | | |
 | `docs/MAP.md` | This map | | |

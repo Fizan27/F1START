@@ -80,6 +80,25 @@ def test_weather_uses_the_latest_earlier_reading():
     assert result["Rainfall"].to_list() == [False]
 
 
+def test_qualifying_pace():
+    # Pole is 100s. BBB qualified 2% slower. CCC's lap was ruined (20% slower)
+    # so CCC borrows team-mate BBB's gap. DDD has no lap and no team-mate.
+    qualifying = one_race(
+        Driver=["AAA", "BBB", "CCC", "DDD"],
+        BestQualiTime=[100.0, 102.0, 120.0, float("nan")],
+    )
+    laps = one_race(
+        Driver=["AAA", "BBB", "CCC", "DDD"],
+        Team=["Red", "Blue", "Blue", "Green"],
+        LapTime=[103.0, 105.0, 105.0, 105.0],
+    )
+    result = clean_data.add_qualifying_pace(laps, qualifying).sort("Driver")
+    assert result["PoleTime"].to_list() == [100.0] * 4
+    assert [round(gap, 6) if gap is not None else None
+            for gap in result["QualiGapPct"].to_list()] == [0.0, 2.0, 2.0, None]
+    assert [round(pct, 6) for pct in result["LapTimePct"].to_list()] == [3.0, 5.0, 5.0, 5.0]
+
+
 def test_clean_lap_flag_rejects_non_racing_laps():
     laps = one_race(
         LapTime=[90.0, 90.0, 90.0, 90.0, None, 90.0],

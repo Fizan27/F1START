@@ -5,7 +5,7 @@
 #   fuel proxy, gap to the car ahead, weather on that lap, safety car flags,
 #   and which laps are "clean" racing laps.
 # What it reads: data/raw/*_laps.parquet, *_weather.parquet, *_results.parquet
-#   (made by download_data.py).
+#   and qualifying.parquet (made by download_data.py).
 # What it produces: data/laps.parquet, and a summary printed to the screen.
 # Which files use it: every later step reads data/laps.parquet (the lap time
 #   models, the pit loss and safety car statistics, and the race replay).
@@ -17,7 +17,12 @@ from pathlib import Path
 import polars as pl
 
 RAW_FOLDER = Path("data/raw")
+QUALIFYING_FILE = RAW_FOLDER / "qualifying.parquet"
 OUTPUT_FILE = Path("data/laps.parquet")
+
+# Qualifying gaps to pole above this (percent) are rain or a ruined lap.
+# Between dry cars the whole field is normally covered by about 3 percent.
+MAX_BELIEVABLE_QUALI_GAP = 5.0
 
 RACE = ["Year", "Round"]  # these two columns together identify one race
 
@@ -143,6 +148,41 @@ def add_results(laps: pl.DataFrame, results: pl.DataFrame) -> pl.DataFrame:
     return laps.join(per_driver, on=RACE + ["Driver"], how="left")
 
 
+def add_qualifying_pace(laps: pl.DataFrame, qualifying: pl.DataFrame) -> pl.DataFrame:
+    """Add PoleTime, QualiGapPct and LapTimePct (the model's target).
+
+    PoleTime: the fastest qualifying lap of the weekend. It is the yardstick
+      that removes "which circuit is this" from the lap times.
+    QualiGapPct: how much slower than pole this driver qualified, in percent.
+      It tells the model how fast this car and driver are this weekend.
+    LapTimePct: the race lap time as percent slower than pole.
+    All three use only qualifying, which is finished before the race starts,
+    so nothing about the race itself leaks into the model's inputs.
+    """
+    best = qualifying.with_columns(pl.col("BestQualiTime").fill_nan(None))
+    pole = best.group_by(RACE).agg(pl.col("BestQualiTime").min().alias("PoleTime"))
+    gap = (pl.col("BestQualiTime") / pl.col("PoleTime") - 1) * 100
+    gaps = best.join(pole, on=RACE).select(
+        *RACE,
+        "Driver",
+        # A huge gap means rain or a ruined lap, not a slow car, so it says
+        # nothing about race pace. Treat it as "no representative lap".
+        pl.when(gap <= MAX_BELIEVABLE_QUALI_GAP).then(gap).alias("QualiGapPct"),
+    )
+    return (
+        laps.join(pole, on=RACE, how="left")
+        .join(gaps, on=RACE + ["Driver"], how="left")
+        .with_columns(
+            # No usable lap: borrow the team-mate's gap, as they drive the
+            # same car. If neither has one it stays empty.
+            pl.col("QualiGapPct").fill_null(
+                pl.col("QualiGapPct").mean().over(RACE + ["Team"])
+            ),
+            ((pl.col("LapTime") / pl.col("PoleTime") - 1) * 100).alias("LapTimePct"),
+        )
+    )
+
+
 def add_clean_lap_flag(laps: pl.DataFrame) -> pl.DataFrame:
     """Mark laps that show normal racing pace.
 
@@ -174,6 +214,7 @@ def build_clean_laps() -> pl.DataFrame:
     laps = add_gap_ahead(laps)
     laps = add_weather(laps, read_raw("weather"))
     laps = add_results(laps, read_raw("results"))
+    laps = add_qualifying_pace(laps, pl.read_parquet(QUALIFYING_FILE))
     laps = add_clean_lap_flag(laps)
     return laps.sort(RACE + ["Driver", "LapNumber"])
 
