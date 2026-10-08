@@ -224,3 +224,15 @@ across 2,828 different pairings.
   Qualifying position (or grid) exists throughout.
 - **Test seasons.** 2024 and 2025 have 472 teammate pairs: 376 with a
   comparable race result and 451 with a qualifying gap.
+
+Lap data, measured by `clean_laps.py`: 3,538 driver races from 183 races
+(2018 to round 16 of 2026), built from 163,011 clean laps. Every driver code
+matched a driver in the results history.
+
+- Six races since 2018 have no lap pace. FastF1 has no lap data for Monza
+  2018 (the download fails every time). The other five were wet from start to
+  finish, so no lap passes the clean lap rule: Turkey 2020 and 2021, Spa 2021,
+  Suzuka 2022 and São Paulo 2024.
+- A typical driver's laps scatter by about 0.5% (roughly 0.45 seconds) around
+  their own median. That number is larger than pure driver inconsistency,
+  because tyre wear and traffic are still in it (decision 12).
