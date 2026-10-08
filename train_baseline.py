@@ -43,6 +43,8 @@ COMPOUNDS = pl.Enum(["SOFT", "MEDIUM", "HARD"])
 #     "Position", "FinishPosition"  decided by the lap times, so they leak
 #     "Driver", "Team", "Circuit"   left out on purpose: DECISIONS.md 10 and 11
 FEATURES = [
+    "Compound", "TyreLife", "LapsRemaining", "GapAhead", "QualiGapPct",
+    "TrackTemp", "AirTemp"
 ]
 
 
@@ -70,8 +72,8 @@ def split_by_season(laps: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     #   near copies of each other. A random split would put some laps of a race
     #   in training and the rest in validation, and the score would look far
     #   better than the model really is on a race it has never seen.
-    train = ...
-    validation = ...
+    train = laps.filter(pl.col("Split") == "train")
+    validation = laps.filter(pl.col("Split") == "validation")
     return train, validation
 
 
@@ -94,7 +96,9 @@ def train_model(train: pl.DataFrame) -> lgb.LGBMRegressor:
     #       model.fit(inputs, answers)
     #     inputs  come from to_inputs(train)
     #     answers are the target column:  train[TARGET].to_numpy()
-    model = ...
+    model = lgb.LGBMRegressor(n_estimators=500, learning_rate=0.05,
+                                 random_state=0, verbose=-1)
+    model.fit(to_inputs(train), train[TARGET].to_numpy())
     return model
 
 
@@ -106,7 +110,7 @@ def mean_absolute_error(predicted: np.ndarray, actual: np.ndarray) -> float:
     #   3. average them:                np.mean(...)
     #   Why absolute? Without it, a lap predicted 1 too high and a lap 1 too
     #   low would cancel to zero and a bad model would look perfect.
-    return ...
+    return np.mean(np.abs(predicted - actual))
 
 
 def add_predictions(model, laps: pl.DataFrame) -> pl.DataFrame:
