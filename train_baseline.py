@@ -41,10 +41,6 @@ GAP_CAP_SECONDS = 10.0
 # kept in the SCORING, because hiding them would flatter the model.
 OUTLIER_PCT = 5.0
 
-# In wet qualifying the pole lap is slow, so the race looks "faster than
-# pole". Races below this level are left out of the circuit averages.
-WET_QUALIFYING_LEVEL = 3.0
-
 # The fixed list of tyre types, so "SOFT" means the same thing in every table.
 COMPOUNDS = pl.Enum(["SOFT", "MEDIUM", "HARD"])
 
@@ -92,9 +88,16 @@ def to_inputs(laps: pl.DataFrame, inputs: list[str]):
     return laps.select(inputs).to_pandas()
 
 
+def training_laps(train: pl.DataFrame) -> pl.DataFrame:
+    """The laps a model learns from: dry races only, without outlier laps."""
+    # Used by the neural network too, so both models learn from the same laps
+    # and the comparison between them is fair.
+    return train.filter(~pl.col("IsWetRace") & (pl.col(TARGET) < OUTLIER_PCT))
+
+
 def train_model(train: pl.DataFrame, inputs: list[str]) -> lgb.LGBMRegressor:
     """Fit the gradient boosting model on the training laps."""
-    train = train.filter(pl.col(TARGET) < OUTLIER_PCT)
+    train = training_laps(train)
     # 500 small trees, each making a small (0.05) correction to the ones
     # before. random_state=0 makes the result the same on every run.
     model = lgb.LGBMRegressor(n_estimators=500, learning_rate=0.05,
@@ -122,15 +125,21 @@ def add_predictions(laps: pl.DataFrame, predicted) -> pl.DataFrame:
 
 def score(name: str, scored: pl.DataFrame) -> dict:
     """One row of the comparison table for one way of predicting."""
-    errors = scored["ErrorSeconds"].to_numpy()
-    nothing = np.zeros(len(errors))
-    shanghai = scored.filter(pl.col("Circuit") == "Shanghai")["ErrorSeconds"].to_numpy()
+    def errors_where(condition) -> np.ndarray:
+        return scored.filter(condition)["ErrorSeconds"].to_numpy()
+
+    every_lap = errors_where(pl.lit(True))
+    # Version one models dry racing only, so dry races are the headline and
+    # "all races" shows what the wet and mixed ones cost. DECISIONS.md 15.
+    dry = errors_where(~pl.col("IsWetRace"))
+    shanghai = errors_where(pl.col("Circuit") == "Shanghai")
     return {
         "model": name,
-        "mean_miss_s": round(mean_absolute_error(errors, nothing), 3),
+        "dry_mean_miss_s": round(mean_absolute_error(dry, 0), 3),
         # The median is the miss on a typical lap. The mean is pulled up by
         # the few very bad laps, so the two together show both stories.
-        "median_miss_s": round(float(np.median(np.abs(errors))), 3),
+        "dry_median_miss_s": round(float(np.median(np.abs(dry))), 3),
+        "all_mean_miss_s": round(mean_absolute_error(every_lap, 0), 3),
         "shanghai_mean_miss_s": round(mean_absolute_error(shanghai, 0), 3),
     }
 
@@ -155,6 +164,7 @@ def error_table(laps: pl.DataFrame, group: str) -> pl.DataFrame:
     """Average error for each value of one column (for example each circuit)."""
     return laps.group_by(group).agg(
         pl.len().alias("laps"),
+        pl.col("IsWetRace").first().alias("wet_race"),
         pl.col("ErrorSeconds").abs().mean().round(3).alias("mean_miss_s"),
         pl.col("ErrorSeconds").abs().median().round(3).alias("median_miss_s"),
         # Bias: is the model too slow (+) or too fast (-) on average here?
@@ -171,10 +181,12 @@ def race_level_forecast(train: pl.DataFrame, validation: pl.DataFrame) -> pl.Dat
     """
     def one_row_per_race(laps):
         return laps.group_by(RACE + ["Circuit"]).agg(
-            pl.col("RacePacePct").first(), pl.col("PoleTime").first()
+            pl.col("RacePacePct", "PoleTime", "IsWetRace", "IsWetQualifying").first()
         )
 
-    past = one_row_per_race(train).filter(pl.col("RacePacePct") > WET_QUALIFYING_LEVEL)
+    # Wet races and wet qualifying give levels that say nothing about a
+    # normal dry weekend, so they are left out of the circuit averages.
+    past = one_row_per_race(train).filter(~pl.col("IsWetRace") & ~pl.col("IsWetQualifying"))
     by_circuit = past.group_by("Circuit").agg(pl.col("RacePacePct").mean().alias("Forecast"))
     forecast = pl.col("Forecast").fill_null(past["RacePacePct"].mean())
     return (
@@ -204,13 +216,17 @@ def print_report(comparison, chosen_laps, train, levels):
     with pl.Config(tbl_rows=30):
         print(by_circuit)
 
-    misses = levels["error_s_per_lap"].abs()
-    print("\n4. Race pace level, forecast before the race from earlier seasons:")
-    print(f"   typical miss (median) {misses.median():.2f}s per lap,"
-          f" mean {misses.mean():.2f}s per lap. The five worst races:")
-    print(levels.sort(misses, descending=True).head(5).select(
+    print("\n4. Race pace level, forecast before the race from earlier seasons."
+          "\n   Miss in seconds per lap:")
+    normal = levels.filter(~pl.col("IsWetRace") & ~pl.col("IsWetQualifying"))
+    for name, races in [("dry race, dry qualifying", normal), ("all races", levels)]:
+        misses = races["error_s_per_lap"].abs()
+        print(f"   {name:<26} {races.height:>2} races   median {misses.median():.2f}"
+              f"   mean {misses.mean():.2f}")
+    print("   The five worst races:")
+    print(levels.sort(levels["error_s_per_lap"].abs(), descending=True).head(5).select(
         "Circuit", pl.col("RacePacePct").round(2), pl.col("Forecast").round(2),
-        "error_s_per_lap",
+        "error_s_per_lap", "IsWetRace", "IsWetQualifying",
     ))
 
 

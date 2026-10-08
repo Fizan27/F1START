@@ -173,3 +173,69 @@ basic plus circuit 0.684s.
   as a fingerprint of the race and the trees memorise training races.
 - Circuit helped, including at Shanghai, which training never saw (0.58s to
   0.54s there), so the worry in number 11 did not materialise for LightGBM.
+
+(These figures are from before number 15 changed training to dry races only.
+Current figures are in the README.)
+
+## 15. Wet and mixed races are flagged, and dry racing is reported separately
+
+Version one models dry racing only. On a damp track, laps on dry tyres are
+slow for a reason none of the model's inputs can see, and wet-weather tyre
+laps are already excluded from clean laps. So every race gets two flags in
+`clean_data.py`:
+
+- `IsWetRace`: at least 2% of the race's laps were on intermediate or wet
+  tyres, or rain was recorded on at least 10% of laps. The second rule
+  catches races where it rained but everyone stayed on dry tyres (Budapest
+  2022, Spa 2023). The thresholds are low on purpose: a few laps of rain is
+  enough to disturb the pace of the whole race. In 2022 to 2024 this flags
+  11 of 68 races.
+- `IsWetQualifying`: a dry race whose typical lap is less than 3% slower than
+  pole. Dry races normally run 5 to 13% slower, so this only happens when
+  pole was set on a wet track. It flags 4 races (Montréal 2022 and 2023,
+  Silverstone 2022, Spa 2024). It matters for forecasting the race pace
+  level, where it is the single biggest source of error.
+
+How the flags are used:
+
+- Results are reported for dry races (the headline, matching the scope) and
+  for all races (showing what the wet and mixed ones cost).
+- Models are trained on dry races only. Measured on 2024 with the baseline,
+  this improved the dry mean miss from 0.641s to 0.632s and did not hurt the
+  all-races figure (0.684s to 0.675s).
+
+Limitation: `IsWetRace` is worked out from the whole race, so it describes
+past races and could not be used to predict rain. Rain is an optional extra
+for a later version.
+
+## 16. The network predicts a centre and a spread (a bell curve per lap)
+
+To predict a range, the network outputs two numbers per lap: a centre and a
+spread, describing a bell curve (Gaussian). It is trained with the Gaussian
+negative log likelihood: `log(spread) + 0.5 * ((actual - centre) / spread)^2`.
+The first part punishes wide ranges and the second punishes misses measured
+in spreads, so the only way to do well is an honest spread.
+
+Why this and not the alternative (predicting fixed percentiles, "quantile
+regression"): the simulator has to draw thousands of random lap times per
+second on the GPU, and drawing from a bell curve is one line of code. The
+cost: real lap times are lopsided (a lap can be 3 seconds slow, never 3
+seconds fast), and a bell curve cannot show that. Outlier laps are left out
+of training partly for this reason.
+
+The honesty of the spreads is checked by counting how many real 2024 laps
+fall inside the predicted 90% range.
+
+## 17. Network settings: small, 20 epochs, circuits sometimes hidden
+
+Chosen by trying values and scoring on 2024 (averaged over two random seeds):
+
+- Two hidden layers of 64. A width of 32 was slightly worse.
+- 20 epochs. At 10 the dry mean miss was 0.630s, at 20 it was 0.623s, and at
+  40 it was no better while the share of laps inside the 90% range fell from
+  86% to 85%: the network had started memorising training races.
+- Weight decay (a common guard against memorising) made no measurable
+  difference, so it is left out to keep the code simple.
+- Each circuit is described by 4 learned numbers (an embedding). On 10% of
+  training laps the circuit is replaced by "unknown", so the network learns a
+  general answer to use at circuits it has never seen.

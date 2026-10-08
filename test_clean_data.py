@@ -111,6 +111,26 @@ def test_race_pace_ignores_laps_that_are_not_clean():
     assert result["PaceVsRacePct"].to_list() == [-1.0, 0.0, 1.0, 51.0]
 
 
+def conditions_of(compounds, rainfall, race_pace) -> tuple[bool, bool]:
+    """Run add_conditions on one small race; return (wet race, wet qualifying)."""
+    laps = one_race(
+        Compound=compounds, Rainfall=rainfall, RacePacePct=[race_pace] * len(compounds)
+    )
+    result = clean_data.add_conditions(laps)
+    return result["IsWetRace"][0], result["IsWetQualifying"][0]
+
+
+def test_conditions():
+    dry, rain = ["HARD"] * 10, [False] * 10
+    assert conditions_of(dry, rain, 8.0) == (False, False)
+    # One lap in ten on intermediates makes it a mixed race.
+    assert conditions_of(["INTERMEDIATE"] + ["HARD"] * 9, rain, 8.0) == (True, False)
+    # Rain on two laps in ten while everyone stays on dry tyres also counts.
+    assert conditions_of(dry, [True] * 2 + [False] * 8, 8.0) == (True, False)
+    # A dry race that ran faster than pole means qualifying was wet.
+    assert conditions_of(dry, rain, -3.0) == (False, True)
+
+
 def test_clean_lap_flag_rejects_non_racing_laps():
     laps = one_race(
         LapTime=[90.0, 90.0, 90.0, 90.0, None, 90.0],

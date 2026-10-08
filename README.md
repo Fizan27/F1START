@@ -35,27 +35,30 @@ has not been looked at. Reproduce with `train_baseline.py`.
 
 Lap time is split into the race's overall pace level and each lap's pace
 within the race ([why](docs/DECISIONS.md), number 12). The model predicts the
-second part. Miss in seconds per lap, on 21,354 clean laps from 2024:
+second part. Version one covers dry racing only, so dry races are the
+headline and "all races" includes the wet and mixed ones
+([how they are flagged](docs/DECISIONS.md), number 15). Miss in seconds per
+lap, on 21,354 clean laps from 2024:
 
-| Model | Mean miss | Median miss | Shanghai (unseen circuit), mean |
-|---|---|---|---|
-| Know-nothing (every lap is the race's typical lap) | 1.085 | 0.894 | 1.041 |
-| Basic inputs (compound, tyre age, laps remaining, gap ahead, qualifying gap) | 0.725 | 0.503 | 0.580 |
-| Basic + temperatures | 0.783 | 0.556 | 0.739 |
-| **Basic + circuit (chosen)** | **0.684** | **0.464** | **0.536** |
-
-By compound for the chosen model, mean miss: hard 0.66s, soft 0.69s, medium 0.72s.
+| Model | Dry races, mean | Dry races, median | All races, mean | Shanghai (unseen circuit), mean |
+|---|---|---|---|---|
+| Know-nothing (every lap is the race's typical lap) | 1.044 | 0.884 | 1.085 | 1.041 |
+| Basic inputs (compound, tyre age, laps remaining, gap ahead, qualifying gap) | 0.683 | 0.498 | 0.724 | 0.544 |
+| Basic + temperatures | 0.748 | 0.555 | 0.801 | 0.843 |
+| **Basic + circuit (chosen)** | **0.632** | **0.451** | **0.675** | **0.518** |
 
 Weaknesses measured so far:
 
 - The first version predicted lap time against the pole lap directly and was
   worse than guessing the average (2.63s against 2.09s).
-- Races with changing conditions are predicted badly: Montréal 2.31s,
-  Silverstone 1.38s and Monaco 1.27s mean miss, against 0.38s at Miami.
+- Wet and mixed races are predicted badly, as expected for a dry-only model:
+  Montréal 2024 has a mean miss above 2s and Silverstone 2024 above 1.3s.
+  Among dry races Monaco is the worst, at about 1.3s.
 - The race pace level itself is hard to forecast before a race from earlier
-  seasons: median miss 0.49s per lap but mean 1.33s, with Spa 2024 off by
-  13.5s per lap because qualifying was wet. Replays of past races use the
-  real level, so this does not affect them.
+  seasons. For the 20 races with a dry race and dry qualifying: median miss
+  0.38s per lap, mean 0.65s. Including the other three: mean 1.29s, with Spa
+  2024 off by 15.8s per lap because qualifying was wet. Replays of past races
+  use the real level, so this does not affect them.
 
 Still to come: the neural network with uncertainty, race replay validation,
 the simulator, the AI strategist and the app.

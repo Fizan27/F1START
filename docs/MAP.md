@@ -35,9 +35,16 @@ is added.
         |                2022-23, scored on 2024. Compares input choices and
         |                prints error tables; saves nothing yet.
         v
- neural network          step 4 (NEXT, not built yet): PyTorch model on the
-                         GPU that predicts a range of lap times
+ train_network.py        step 4 (IN PROGRESS, has TODO(human) lines): PyTorch
+        |                network on the GPU that predicts a range of lap
+        |                times. Imports train_baseline.py so both models
+        |                are loaded and scored by the same code.
+        v
+ models/lap_time_network.pt   the trained network, for the simulator
 ```
+
+Every race also carries `IsWetRace` and `IsWetQualifying` (DECISIONS.md 15).
+Models train on dry races only; results are shown for dry races and for all.
 
 Lap time is split in two (DECISIONS.md 12), both built in `clean_data.py`:
 
@@ -66,6 +73,7 @@ Car pace comes from `QualiGapPct`, from `data/raw/qualifying.parquet`
 | `clean_data.py` | Builds the one clean lap table | `data/raw/*.parquet` | `data/laps.parquet` |
 | `test_clean_data.py` | Tests for `clean_data.py` | nothing | pass/fail |
 | `train_baseline.py` | LightGBM baseline lap time model | `data/laps.parquet` | printed error tables |
+| `train_network.py` | Neural network that predicts a range | `data/laps.parquet`, uses `train_baseline.py` | `models/lap_time_network.pt`, printed comparison |
 | `requirements.txt` | The libraries to install | | |
 | `CLAUDE.md` | The rules for how this project is built | | |
 | `docs/MAP.md` | This map | | |

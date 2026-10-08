@@ -30,6 +30,16 @@ RACE = ["Year", "Round"]  # these two columns together identify one race
 SPLIT_BY_YEAR = {2022: "train", 2023: "train", 2024: "validation", 2025: "test"}
 
 DRY_COMPOUNDS = ["SOFT", "MEDIUM", "HARD"]
+WET_COMPOUNDS = ["INTERMEDIATE", "WET"]
+
+# A race counts as wet or mixed if at least this share of its laps were on
+# wet-weather tyres, or had rain recorded. Why these values: DECISIONS.md 15.
+WET_TYRE_SHARE = 0.02
+RAIN_SHARE = 0.10
+
+# A dry race is normally 5 to 13 percent slower than pole. Below this level
+# the pole lap itself must have been slow, which means qualifying was wet.
+WET_QUALIFYING_LEVEL = 3.0
 
 # The same circuit sometimes gets a different name in a different season.
 # The model must see one name per circuit, or it treats them as two places.
@@ -227,6 +237,29 @@ def add_race_pace(laps: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def add_conditions(laps: pl.DataFrame) -> pl.DataFrame:
+    """Flag wet or mixed races, and races whose qualifying was wet.
+
+    IsWetRace: wet-weather tyres were used, or it rained for a real part of
+      the race even though everyone stayed on dry tyres. Version one of this
+      project models dry racing only, so results are reported for dry races
+      separately. A damp track makes dry-tyre laps slow in ways the model's
+      inputs cannot see.
+    IsWetQualifying: the race ran close to, or faster than, the pole lap,
+      which only happens when pole was set on a wet track. It makes the
+      qualifying yardstick and the qualifying gaps unreliable for that race.
+    """
+    wet_tyre_share = pl.col("Compound").is_in(WET_COMPOUNDS).mean().over(RACE)
+    rain_share = pl.col("Rainfall").mean().over(RACE)
+    return laps.with_columns(
+        ((wet_tyre_share >= WET_TYRE_SHARE) | (rain_share >= RAIN_SHARE)).alias("IsWetRace"),
+    ).with_columns(
+        (
+            ~pl.col("IsWetRace") & (pl.col("RacePacePct") < WET_QUALIFYING_LEVEL)
+        ).fill_null(False).alias("IsWetQualifying"),
+    )
+
+
 def build_clean_laps() -> pl.DataFrame:
     """Run every cleaning step in order."""
     laps = tidy_laps(read_raw("laps"))
@@ -239,6 +272,7 @@ def build_clean_laps() -> pl.DataFrame:
     laps = add_qualifying_pace(laps, pl.read_parquet(QUALIFYING_FILE))
     laps = add_clean_lap_flag(laps)
     laps = add_race_pace(laps)
+    laps = add_conditions(laps)
     return laps.sort(RACE + ["Driver", "LapNumber"])
 
 
