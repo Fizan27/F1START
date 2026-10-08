@@ -306,13 +306,33 @@ def widening_factor(laps: pl.DataFrame, centre, spread) -> float:
     return float(np.quantile(misses_in_spreads, RANGE_TARGET) / RANGE_SPREADS)
 
 
-def save_model(model, scaling: dict, factor: float, file: Path = MODEL_FILE):
+def driver_offset_spread(laps: pl.DataFrame, centre) -> float:
+    """How much a driver's whole race differs from the prediction, in percent.
+
+    Some of the network's error is not lap by lap luck: a car is simply
+    quicker or slower all race than its qualifying suggested. The simulator
+    needs to know how big that whole-race part is, so that it can give each
+    car one pace offset per simulated race instead of treating every lap as
+    independent (which would make simulated races far too predictable).
+    """
+    per_driver = (
+        laps.with_columns((pl.col(TARGET) - pl.Series(centre)).alias("Miss"))
+        .filter(~pl.col("IsWetRace") & (pl.col(TARGET) < baseline.OUTLIER_PCT))
+        .group_by(baseline.RACE + ["Driver"])
+        .agg(pl.col("Miss").mean(), pl.len().alias("laps"))
+        .filter(pl.col("laps") >= 15)
+    )
+    return float(per_driver["Miss"].std())
+
+
+def save_model(model, scaling: dict, factor: float, driver_spread: float,
+               file: Path = MODEL_FILE):
     """Save the weights, the input preparation numbers and the calibration."""
     # The simulator must prepare its inputs in exactly the same way, so the
     # scaling numbers and the widening factor travel with the weights.
     file.parent.mkdir(exist_ok=True)
     torch.save({"weights": model.state_dict(), "scaling": scaling,
-                "spread_factor": factor}, file)
+                "spread_factor": factor, "driver_offset_spread": driver_spread}, file)
     print(f"\nSaved the trained network to {file}")
 
 
@@ -349,7 +369,10 @@ def main():
     # construction. The honest check of the calibration is the 2025 test.
     factor = widening_factor(validation, centre, spread)
     report(train, validation, centre, spread, factor, "2024 (validation)")
-    save_model(model, scaling, factor)
+    driver_spread = driver_offset_spread(validation, centre)
+    print(f"\n4. Whole-race pace offset per driver: spread of {driver_spread:.3f}% of pole"
+          f" (about {driver_spread * validation['PoleTime'].mean() / 100:.2f}s per lap)")
+    save_model(model, scaling, factor, driver_spread)
 
 
 if __name__ == "__main__":

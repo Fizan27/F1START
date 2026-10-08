@@ -260,3 +260,104 @@ On 2026-10-08 the owner asked for the project to be finished as fast as
 possible without questions or TODO(human) lines, with decisions logged here.
 CLAUDE.md was updated to match. Decisions from here on were made by the
 assistant and are recorded with their reasons and measured effects.
+
+## 20. Pit loss is measured against cars that stayed out on the same laps
+
+A stop spreads its cost over the lap into the pits and the lap out. So the
+cost is: the time the stopping car took for those two laps, minus the median
+time of cars in the same race that stayed out on the same two laps. Measured
+on 767 green flag stops in dry 2022 to 2023 races. Per circuit medians run
+from 18.8s (Spa) to 27.4s (Lusail); circuits with fewer than 8 clean stops
+use the overall median, 22.0s.
+
+Safety car and VSC stops needed two extra steps:
+
+- Single stops are too noisy (values from -31s to +118s, because the queue
+  behind a safety car distorts the comparison). Only laps where at least 3
+  cars pitted together are used. Measured this way a stop costs 72% of a
+  green stop under a safety car and 86% under a VSC.
+- Those are seconds on a slow clock. While the field crawls, a 15 second gap
+  is a much shorter distance than 15 seconds at racing speed, and it shrinks
+  back when racing resumes. The simulator keeps gaps in racing-speed
+  seconds, so the measured cost is divided by how much slower the laps are
+  (safety car laps are 49% of pole slower than normal, VSC laps 36%). Result:
+  a stop costs 49% of a green stop under a safety car and 65% under a VSC,
+  in line with what teams commonly quote.
+
+## 21. Safety car and VSC likelihood: phase rates, scaled per circuit
+
+The chance per lap that a safety car starts is counted per race phase over
+all circuits (laps 1 to 3: 7.1%; early third: 1.0%; middle: 0.7%; late:
+0.7%). Each circuit then gets a multiplier: periods seen there divided by
+periods an average circuit would have had in the same laps.
+
+With two or three races per circuit a single crash would swing that
+multiplier wildly, so it is pulled towards 1 by adding 2 imaginary average
+periods to both sides: (seen + 2) / (expected + 2). This is a standard trick
+(shrinkage) for rates estimated from very few events. Multipliers end up
+between about 0.6 (Barcelona) and 1.6 (Melbourne). Period lengths are drawn
+from the real lengths seen. Based on only 19 safety car and 20 VSC periods
+in 32 races, so these are rough.
+
+## 22. Simulator rules that are assumptions, not measurements
+
+`simulator.py` needs a few rules the data cannot give directly:
+
+- First lap: the lap time model does not cover the standing start. Each grid
+  slot costs 0.74s by the end of lap 1 plus random luck, both fitted to real
+  lap 1 gaps.
+- Overtaking: a car must be 1.0s a lap faster than the car in front to pass,
+  otherwise it finishes the lap 0.4s behind. Values from 0 to 2.5s were
+  tried in the 2024 replay; the position miss only moved between 1.96 and
+  2.06 places, so a physically sensible value was chosen instead of the best
+  scoring one (which would be fitting noise).
+- Safety car: the leader laps slowly and every car closes to 0.6s behind the
+  car in front. VSC: everyone laps at the same slow pace, so gaps freeze.
+- Rivals react: when a safety car (or VSC) appears, a rival whose next
+  planned stop is within 8 (or 4) laps pits at once. Without this, rivals
+  would ignore safety cars and any strategy that used them would look
+  unrealistically good.
+- Retirements: cars that really retired drop out on the lap they really did.
+  The simulator does not model crashes or breakdowns.
+- Only dry races without a red flag are simulated (a red flag allows a free
+  tyre change, which the simulator does not model).
+- The whole pit loss is charged on the lap of the stop, and tyres age one
+  lap per lap even behind a safety car.
+
+## 23. The simulator does not trust the network on very old tyres
+
+The network's wear curves flatten out on very old tyres, because the only
+cars that ever ran 40 lap old tyres were ones whose tyres happened to be
+lasting well (survivor bias). Left alone, a strategy search or an RL agent
+would exploit this by never stopping. So beyond the tyre age that 99% of
+real laps on that compound stayed under, the simulator adds 0.10% of pole
+(about 0.09s) per extra lap. This is a guard rail, not a measurement.
+
+## 24. Whole-race driver pace: measured, then scaled to 0.4 in replay
+
+Part of the network's error is not lap by lap luck: a car is simply quicker
+or slower all race than its qualifying gap suggested. Measured on 2024 this
+whole-race offset has a spread of 0.54% of pole (about 0.44s a lap). The
+simulator draws one offset per car per simulated race, and reduces the lap
+by lap luck to match so the total is not counted twice.
+
+Using all of that spread made simulated results too scattered: 98% of real
+2024 finishing positions fell inside a simulated range meant to hold 90%.
+The likely reason is double counting, since some of the measured offset is
+traffic and strategy, which the simulator models separately. Using 0.4 of it
+gives 91%, so 0.4 is used. This is tuned on 2024; 2025 is the real check.
+
+## 25. Replay validation: what is compared, and with what
+
+Each dry 2024 race without a red flag (19 races) is simulated 200 times with
+the real grid, real strategies and real safety car laps. The simulator is
+given each driver's qualifying gap but nothing about their real race pace.
+Only real finishers are scored. The yardstick it has to beat is "everyone
+finishes where they started" (grid order), which is a strong predictor in F1.
+
+Result: average miss of 2.03 places against 2.43 for grid order (16% better),
+winner right in 11 of 18 races, 39 of 54 podium places right. Weakness: the
+simulated field is too spread out, with a median gap to the winner of about
+65s against 47s in reality (median error 17s per driver). Likely causes:
+real leaders manage their pace instead of pulling away, and lapped cars are
+not modelled.
