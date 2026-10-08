@@ -20,6 +20,7 @@ import numpy as np
 import torch
 
 import simulator
+import strategy_search
 from simulator import GAP_CAP_SECONDS, NEVER, RaceSim
 
 # --- The reward (docs/DECISIONS.md, number 27) ---
@@ -36,6 +37,9 @@ OBSERVATION_NAMES = [
     "used soft", "used medium", "used hard", "pit loss", "qualifying gap",
     "pace now", "pace on new soft", "pace on new medium", "pace on new hard",
     "laps past tyre limit",
+    # Which compounds it is allowed to fit. These three MUST stay last: the
+    # strategist reads them to rule out the compounds it may not choose.
+    "may fit soft", "may fit medium", "may fit hard",
 ]
 
 
@@ -55,13 +59,32 @@ class StrategyEnv:
             ok = (race.retire_lap == NEVER) & (race.finish_position < 99)
             finisher[r, :len(ok)] = torch.tensor(ok, dtype=torch.float32)
         self.finisher = finisher
+        # The compounds each car's team really used in each race. (R, D, 3)
+        team_tyres = torch.ones(len(race_set.races), simulator.CARS, 3, dtype=torch.bool,
+                                device=self.device)
+        for r, race in enumerate(race_set.races):
+            for car in range(len(race.drivers)):
+                team_tyres[r, car] = False
+                team_tyres[r, car, list(strategy_search.team_compounds(race, car))] = True
+        self.team_tyres = team_tyres
 
     def random_episodes(self, count: int, generator) -> tuple:
-        """Pick `count` random races and a random finisher in each."""
+        """Pick `count` random races, a random finisher in each, and which
+        compounds it may fit.
+
+        In half the races the strategist is limited to the compounds that
+        car's team really used, in the other half it may fit anything. It has
+        to be trained on both, because it is evaluated on both: a strategist
+        that only ever practised with all three compounds has no plan for
+        the two compound rule when one of them is taken away
+        (docs/DECISIONS.md, number 33).
+        """
         race = torch.randint(len(self.set.races), (count,), generator=generator,
                              device=self.device)
         agent = torch.multinomial(self.finisher[race], 1, generator=generator)[:, 0]
-        return race, agent
+        limited = torch.rand(count, generator=generator, device=self.device) < 0.5
+        allowed = self.team_tyres[race, agent] | ~limited[:, None]
+        return race, agent, allowed
 
     def reset(self, race, agent, seed: int = 0, group=None, allowed=None):
         """Start the races. `race` (B,) and `agent` (B,) say which race each
@@ -139,7 +162,7 @@ class StrategyEnv:
         return self.observe(), reward, terminated, truncated, info
 
     def observe(self) -> torch.Tensor:
-        """What the strategist can see before choosing: (B, 23) numbers,
+        """What the strategist can see before choosing: (B, 26) numbers,
         all scaled to be roughly between -1 and 1. See OBSERVATION_NAMES."""
         sim, rows, agent = self.sim, self.rows, self.agent
         lap = sim.lap
@@ -179,5 +202,6 @@ class StrategyEnv:
             sim.pit_loss[:, 0] / 30, mine(sim.quali_gap) / 3,
             pace_now / 3, *(pace / 3 for pace in new),
             past_limit / 10,
+            *(self.allowed[:, c] for c in range(3)),
         ]
         return torch.stack([part.float() for part in parts], dim=1)

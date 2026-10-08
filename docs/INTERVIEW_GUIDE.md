@@ -41,8 +41,9 @@ baseline "everyone finishes where they started" (25).
 two-stop plans for one car, each simulated in the same random races.
 
 **The AI strategist (`strategy_env.py`, `train_agent.py`).** The race as a
-game: each lap the agent sees 23 numbers and chooses stay out or pit for a
-compound. It is trained with PPO over thousands of parallel races (26 to 28).
+game: each lap the agent sees 26 numbers and chooses stay out or pit for a
+compound. It is trained with PPO over thousands of parallel races (26 to 28,
+33).
 
 ## Likely questions
 
@@ -106,10 +107,11 @@ everyone, costs nothing. At the finish: a penalty per finishing place. Time
 gives a signal every lap; position is the real goal (27).
 
 **Did the agent beat brute force?**
-No. With the same tyres as the team, brute force was ahead on average. They
-were level in races with a safety car, where reacting matters. Brute force
-optimises one car in one race over a thousand plans; the agent is one small
-network for every car at every circuit (30).
+No. With the same tyres as the team it was close on 2024 (1.40 places
+against 1.46) and behind on 2025 (1.05 against 1.33). In 2024 it was ahead
+in races with a safety car, where reacting matters, but that did not repeat
+on 2025. Brute force optimises one car in one race over a thousand plans;
+the agent is one small network for every car at every circuit (30, 33).
 
 **Did the agent exploit the simulator?**
 Yes, and so did brute force. Both loved soft tyres far more than real teams
@@ -123,6 +125,15 @@ No. That number mixes real inefficiency with my simulator's bias towards
 fewer stops, and with things it cannot see: tyre sets available, damage,
 covering rivals. The trustworthy comparison is between methods inside the
 same simulator, not against reality (29).
+
+**Tell me about a bug you found late.**
+The agent was trained with all three compounds available, then evaluated
+limited to the team's compounds. With a compound hidden it had no plan for
+the two compound rule: it ran one compound all race and my safety net forced
+a stop on the second-to-last lap. I found it by looking at one race in the
+app, not from the averages. The fix was to train it under the same limit it
+is tested under, with disallowed actions masked out. The lesson: train and
+test conditions must match, and look at individual examples (33).
 
 **What would you do next?**
 Get the real compound (C1 to C5) per race, which would fix the biggest flaw.

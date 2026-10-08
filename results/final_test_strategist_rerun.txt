@@ -1,0 +1,119 @@
+
+==============================================================================
+4. AI strategist retrained on 2022 to 2024 races
+==============================================================================
+round   reward  position  stops  forced  seconds
+    1   -11.77     14.36   1.56   55.8%        3
+   10    -4.87      9.12   1.41   11.3%       14
+   20    -4.43      8.56   1.25    0.9%       26
+   30    -4.09      8.22   1.24    0.7%       37
+   40    -4.04      8.17   1.25    0.5%       49
+   50    -4.15      8.30   1.25    0.3%       61
+   60    -4.07      8.11   1.26    0.3%       73
+   70    -4.08      8.19   1.27    0.3%       85
+   80    -3.98      8.08   1.26    0.3%       97
+   90    -3.96      8.02   1.25    0.6%      109
+  100    -3.98      8.07   1.24    0.3%      121
+  110    -4.12      8.20   1.25    0.7%      132
+  120    -3.99      8.12   1.27    0.5%      144
+  130    -3.91      7.97   1.25    0.2%      156
+  140    -3.92      8.00   1.26    0.2%      169
+  150    -3.84      7.99   1.23    0.3%      181
+
+Saved the strategist to models\final\strategist.pt
+
+==============================================================================
+6. AI strategist on 2025, against real teams and fixed strategies
+==============================================================================
+  2025 Chinese Grand Prix            done
+  2025 Japanese Grand Prix           done
+  2025 Bahrain Grand Prix            done
+  2025 Saudi Arabian Grand Prix      done
+  2025 Emilia Romagna Grand Prix     done
+  2025 Monaco Grand Prix             done
+  2025 Spanish Grand Prix            done
+  2025 Canadian Grand Prix           done
+  2025 Austrian Grand Prix           done
+  2025 Hungarian Grand Prix          done
+  2025 Dutch Grand Prix              done
+  2025 Italian Grand Prix            done
+  2025 Azerbaijan Grand Prix         done
+  2025 Singapore Grand Prix          done
+  2025 United States Grand Prix      done
+  2025 Mexico City Grand Prix        done
+  2025 São Paulo Grand Prix          done
+  2025 Las Vegas Grand Prix          done
+  2025 Qatar Grand Prix              done
+  2025 Abu Dhabi Grand Prix          done
+
+1. Against what the teams really did (simulated, real race conditions).
+   Positive means better than the team:
+shape: (5, 6)
+┌────────────────────────────────────┬──────────────┬───────────────┬────────────────┬──────────────────┬─────────────────┐
+│ strategy                           ┆ driver_races ┆ places_gained ┆ seconds_gained ┆ better_than_team ┆ worse_than_team │
+│ ---                                ┆ ---          ┆ ---           ┆ ---            ┆ ---              ┆ ---             │
+│ str                                ┆ i64          ┆ f64           ┆ f64            ┆ str              ┆ str             │
+╞════════════════════════════════════╪══════════════╪═══════════════╪════════════════╪══════════════════╪═════════════════╡
+│ best fixed plan (before the race)  ┆ 350          ┆ 1.57          ┆ 10.5           ┆ 73%              ┆ 11%             │
+│ best fixed plan (hindsight)        ┆ 350          ┆ 2.19          ┆ 12.4           ┆ 87%              ┆ 0%              │
+│ AI strategist                      ┆ 350          ┆ 1.11          ┆ 6.7            ┆ 63%              ┆ 17%             │
+│ best fixed plan, team's tyres only ┆ 350          ┆ 1.33          ┆ 8.2            ┆ 66%              ┆ 11%             │
+│ AI strategist, team's tyres only   ┆ 350          ┆ 1.05          ┆ 6.3            ┆ 62%              ┆ 15%             │
+└────────────────────────────────────┴──────────────┴───────────────┴────────────────┴──────────────────┴─────────────────┘
+
+2. The same, split by whether the race had a safety car or VSC:
+shape: (10, 6)
+┌─────────────────────────────────────────────┬──────────────┬───────────────┬────────────────┬──────────────────┬─────────────────┐
+│ strategy                                    ┆ driver_races ┆ places_gained ┆ seconds_gained ┆ better_than_team ┆ worse_than_team │
+│ ---                                         ┆ ---          ┆ ---           ┆ ---            ┆ ---              ┆ ---             │
+│ str                                         ┆ i64          ┆ f64           ┆ f64            ┆ str              ┆ str             │
+╞═════════════════════════════════════════════╪══════════════╪═══════════════╪════════════════╪══════════════════╪═════════════════╡
+│ with: best fixed plan (before the race)     ┆ 235          ┆ 1.5           ┆ 8.8            ┆ 64%              ┆ 16%             │
+│ with: best fixed plan (hindsight)           ┆ 235          ┆ 2.39          ┆ 11.3           ┆ 85%              ┆ 0%              │
+│ with: AI strategist                         ┆ 235          ┆ 1.07          ┆ 5.0            ┆ 56%              ┆ 24%             │
+│ with: best fixed plan, team's tyres only    ┆ 235          ┆ 1.33          ┆ 6.9            ┆ 61%              ┆ 16%             │
+│ with: AI strategist, team's tyres only      ┆ 235          ┆ 1.06          ┆ 5.3            ┆ 57%              ┆ 19%             │
+│ without: best fixed plan (before the race)  ┆ 115          ┆ 1.72          ┆ 14.0           ┆ 90%              ┆ 0%              │
+│ without: best fixed plan (hindsight)        ┆ 115          ┆ 1.8           ┆ 14.7           ┆ 92%              ┆ 0%              │
+│ without: AI strategist                      ┆ 115          ┆ 1.19          ┆ 10.1           ┆ 76%              ┆ 3%              │
+│ without: best fixed plan, team's tyres only ┆ 115          ┆ 1.34          ┆ 10.8           ┆ 77%              ┆ 0%              │
+│ without: AI strategist, team's tyres only   ┆ 115          ┆ 1.03          ┆ 8.4            ┆ 70%              ┆ 5%              │
+└─────────────────────────────────────────────┴──────────────┴───────────────┴────────────────┴──────────────────┴─────────────────┘
+
+3. Exploit checks: does the strategist behave like a real team?
+shape: (9, 3)
+┌─────────────────────────────────────────────────────────┬────────────┬───────────────┐
+│ check                                                   ┆ real_teams ┆ ai_strategist │
+│ ---                                                     ┆ ---        ┆ ---           │
+│ str                                                     ┆ f64        ┆ f64           │
+╞═════════════════════════════════════════════════════════╪════════════╪═══════════════╡
+│ stops per race                                          ┆ 1.72       ┆ 1.316         │
+│ share of stops made under safety car or VSC             ┆ 0.246      ┆ 0.192         │
+│ longest stint (laps)                                    ┆ 33.346     ┆ 33.781        │
+│ share of laps on soft                                   ┆ 0.14       ┆ 0.148         │
+│ share of laps on medium                                 ┆ 0.418      ┆ 0.395         │
+│ share of laps on hard                                   ┆ 0.442      ┆ 0.457         │
+│ races needing a forced last lap stop                    ┆ 0.0        ┆ 0.0           │
+│ team's tyres only: stops per race                       ┆ 1.72       ┆ 1.338         │
+│ team's tyres only: races needing a forced last lap stop ┆ 0.0        ┆ 0.003         │
+└─────────────────────────────────────────────────────────┴────────────┴───────────────┘
+
+4. Examples (first simulation of each):
+shape: (8, 8)
+┌──────────────────────────┬────────┬────────────────────────────┬────────────────────────────┬───────────────────────────┬──────────────┬───────────────┬───────────────┐
+│ Race                     ┆ Driver ┆ RealStrategy               ┆ FixedStrategy              ┆ AgentExample              ┆ RealPosition ┆ FixedPosition ┆ AgentPosition │
+│ ---                      ┆ ---    ┆ ---                        ┆ ---                        ┆ ---                       ┆ ---          ┆ ---           ┆ ---           │
+│ str                      ┆ str    ┆ str                        ┆ str                        ┆ str                       ┆ f64          ┆ f64           ┆ f64           │
+╞══════════════════════════╪════════╪════════════════════════════╪════════════════════════════╪═══════════════════════════╪══════════════╪═══════════════╪═══════════════╡
+│ Mexico City Grand Prix   ┆ GAS    ┆ MEDIUM, lap 33 SOFT        ┆ MEDIUM, lap 20 SOFT, lap   ┆ MEDIUM, lap 32 HARD       ┆ 15.0         ┆ 13.7          ┆ 14.6          │
+│                          ┆        ┆                            ┆ 46 SOFT                    ┆                           ┆              ┆               ┆               │
+│ United States Grand Prix ┆ TSU    ┆ MEDIUM, lap 29 SOFT        ┆ MEDIUM, lap 30 SOFT        ┆ MEDIUM, lap 26 HARD       ┆ 11.4         ┆ 11.3          ┆ 12.3          │
+│ Japanese Grand Prix      ┆ OCO    ┆ HARD, lap 32 MEDIUM        ┆ HARD, lap 36 SOFT          ┆ HARD, lap 34 MEDIUM       ┆ 17.7         ┆ 17.3          ┆ 17.7          │
+│ United States Grand Prix ┆ GAS    ┆ MEDIUM, lap 27 SOFT        ┆ MEDIUM, lap 31 SOFT        ┆ MEDIUM, lap 30 HARD       ┆ 14.0         ┆ 12.8          ┆ 13.8          │
+│ Saudi Arabian Grand Prix ┆ ALB    ┆ MEDIUM, lap 22 HARD        ┆ MEDIUM, lap 27 HARD        ┆ MEDIUM, lap 30 HARD       ┆ 8.8          ┆ 8.5           ┆ 8.6           │
+│ Italian Grand Prix       ┆ COL    ┆ MEDIUM, lap 33 HARD        ┆ MEDIUM, lap 29 SOFT        ┆ MEDIUM, lap 28 HARD       ┆ 12.9         ┆ 11.9          ┆ 12.8          │
+│ Abu Dhabi Grand Prix     ┆ STR    ┆ HARD, lap 42 MEDIUM        ┆ HARD, lap 40 SOFT          ┆ HARD, lap 34 MEDIUM       ┆ 12.2         ┆ 11.2          ┆ 11.6          │
+│ Dutch Grand Prix         ┆ TSU    ┆ SOFT, lap 19 HARD, lap 53  ┆ SOFT, lap 31 HARD          ┆ SOFT, lap 23 HARD, lap 53 ┆ 9.9          ┆ 11.2          ┆ 10.4          │
+│                          ┆        ┆ SOFT                       ┆                            ┆ SOFT                      ┆              ┆               ┆               │
+└──────────────────────────┴────────┴────────────────────────────┴────────────────────────────┴───────────────────────────┴──────────────┴───────────────┴───────────────┘
+Chart saved to docs\strategist_2025.png

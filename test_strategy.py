@@ -109,3 +109,24 @@ def test_a_new_strategist_mostly_stays_out():
     choices, value = strategist(torch.zeros(5, len(OBSERVATION_NAMES)))
     assert (choices.probs[:, 0] > 0.95).all()
     assert value.shape == (5,)
+
+
+def test_the_strategist_cannot_choose_a_compound_that_is_not_allowed():
+    torch.manual_seed(0)
+    strategist = train_agent.Strategist()
+    view = torch.randn(200, len(OBSERVATION_NAMES))
+    view[:, -3:] = torch.tensor([1.0, 0.0, 1.0])  # soft and hard only
+    choices, _ = strategist(view)
+    assert (choices.probs[:, 2] == 0).all()  # medium is impossible
+    assert set(choices.sample().tolist()) <= {0, 1, 3}
+    assert torch.isfinite(choices.entropy()).all()
+
+
+def test_half_of_training_races_are_limited_to_the_teams_tyres():
+    env, _ = new_env()
+    generator = torch.Generator(device=DEVICE).manual_seed(0)
+    _, _, allowed = env.random_episodes(400, generator)
+    # The made-up team only ever used hard tyres, so "the team's tyres"
+    # falls back to all three, and every race allows everything.
+    assert allowed.all()
+    assert allowed.shape == (400, 3)

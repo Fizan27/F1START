@@ -117,13 +117,23 @@ that race (why: next section). Positive means better than the team.
 | | 2024 places gained | 2024 seconds gained | 2025 places gained | 2025 seconds gained |
 |---|---|---|---|---|
 | Best fixed plan | 1.46 | 10.5 | 1.33 | 8.2 |
-| AI strategist | 1.21 | 8.1 | 1.01 | 6.0 |
+| AI strategist | 1.40 | 9.3 | 1.05 | 6.3 |
 
-- **The AI strategist does not beat brute force** in either season.
-- In 2024 races with a safety car or VSC the two were level (1.20 places
-  each). In 2025 brute force was ahead there too (1.33 against 1.01).
-- The strategist does worse than the real team in 12% of driver races in
-  2024 and 18% in 2025.
+- **The AI strategist does not beat brute force.** It was close on 2024 and
+  clearly behind on 2025.
+- In 2024 races with a safety car or VSC the strategist was ahead (1.33
+  places against 1.20), which is where reacting should help. That did not
+  repeat on 2025 (1.06 against 1.33).
+- The strategist does worse than the real team in 6% of driver races in
+  2024 and 15% in 2025.
+
+These strategist numbers are from a corrected strategist. The first version
+was trained with all three compounds available, and when limited to a team's
+tyres it sometimes ran one compound all race and relied on the forced
+last-lap stop to stay legal (7.5% of 2024 driver races). It was retrained
+with the limit as part of training, which cut that to 0.9%. This was done
+after the 2025 test had been run once; its first 2025 result was 1.01 places
+and 6.0s. Details: [docs/DECISIONS.md](docs/DECISIONS.md), number 33.
 
 345 driver races in 2024 and 350 in 2025, after leaving out drivers whose
 real race included a stop forced by damage.
@@ -148,8 +158,8 @@ The first brute force run said fixed plans beat real teams by 2.06 places in
 What was done: a guard on tyre age was tightened (this changed the gain from
 2.06 to 2.08 places, so it was not the main cause), and the comparison was
 restricted to the compounds each team really used (2.08 to 1.46 places).
-Allowed any compound, the numbers are 2.08 places for brute force and 1.66
-for the strategist in 2024, and 1.57 and 1.02 in 2025.
+Allowed any compound, the numbers are 2.08 places for brute force and 1.46
+for the strategist in 2024, and 1.57 and 1.11 in 2025.
 
 **So "places gained over real teams" is not "what teams left on the table".**
 It mixes real inefficiency with simulator bias. The comparison between
@@ -222,7 +232,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe train_agent.py          # the PPO strategist, about 5 minutes
 .venv\Scripts\python.exe evaluate_strategist.py  # strategist against teams on 2024
 .venv\Scripts\python.exe final_test.py           # the one-off 2025 test (already run)
-.venv\Scripts\python.exe -m pytest               # 38 tests
+.venv\Scripts\python.exe -m pytest               # 40 tests
 ```
 
 ## Hardware used

@@ -538,3 +538,53 @@ None of this involved changing a model or a setting after seeing 2025.
 2025 results that held up: the lap level calibration (90.8% of dry laps
 inside the 90% range), the winner (18 of 19 races), and the ordering of
 brute force above the AI strategist.
+
+## 33. The strategist was retrained after the final test, to fix a bug
+
+Found on 2026-10-09 by the owner, looking at one race in the website
+(Hamilton, Bahrain 2024): limited to Mercedes' compounds (soft and hard), the
+strategist ran soft, soft, soft and was then forced onto hards on the
+second-to-last lap by the two compound rule safety net (number 26).
+
+Cause: it was trained with all three compounds available and learned to
+meet the rule using mediums. The "team's tyres only" comparison (number 29)
+was added afterwards, by hiding compounds at evaluation time only. With a
+compound hidden, the strategist had no plan for the rule. The exploit check
+in number 29 reported forced stops only for the unrestricted case (0.2%),
+so it missed this. Measured properly, on 2024 with the team's tyres: 7.5% of
+driver races needed the forced stop, and 64% of those where the team used
+only soft and hard.
+
+Fix:
+
+- The strategist's view gained three numbers: which compounds it may fit
+  (26 numbers in total).
+- Compounds it may not fit are masked out, so their chance is exactly zero
+  (the standard way to handle illegal actions in reinforcement learning).
+- In training, half the races limit it to the compounds that car's team
+  really used, and half allow all three, so it practises both situations it
+  is tested in.
+- The exploit check now reports forced stops for the limited case as well.
+
+Effect, team's tyres only:
+
+| | Before the fix | After the fix |
+|---|---|---|
+| 2024 forced last-lap stops | 7.5% of driver races | 0.9% |
+| 2024 places gained over teams | 1.21 | 1.40 |
+| 2025 forced last-lap stops | not measured | 0.3% |
+| 2025 places gained over teams | 1.01 | 1.05 |
+
+Honesty note on the test protocol. The 2025 test had already been run once
+when this was fixed, so the strategist's 2025 number is no longer a strictly
+once-only result. What limits the damage: the fix was prompted by a 2024
+race and a visible rule problem, not by a 2025 score; no setting was tuned;
+the lap time network, the statistics, the replay and the brute force
+results were not touched (`final_test.py --strategist-only`, output in
+results/final_test_strategist_rerun.txt); and both 2025 numbers are
+reported. The conclusion did not change: brute force stays ahead on 2025.
+
+This updates number 30: on 2024 the strategist is now close to brute force
+overall (1.40 against 1.46) and ahead in races with a safety car or VSC
+(1.33 against 1.20), but on 2025 it is behind in both (1.05 against 1.33
+overall).

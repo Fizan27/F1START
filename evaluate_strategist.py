@@ -57,6 +57,8 @@ def evaluate_race(env: StrategyEnv, strategist, race: int) -> list[dict]:
                        allowed=allowed.repeat_interleave(SAMPLES, dim=0))
     same_positions = same_tyres["position"].reshape(shape)
     same_times = same_tyres["time"].reshape(shape)
+    same_forced = same_tyres["forced"].reshape(shape).float()
+    same_stops = (same_tyres["actions"].reshape(*shape, -1) > 0).sum(dim=2).float()
     positions = driven["position"].reshape(shape)
     times = driven["time"].reshape(shape)
     actions = driven["actions"].reshape(*shape, -1)[:, :, :info.total_laps].cpu().numpy()
@@ -79,6 +81,8 @@ def evaluate_race(env: StrategyEnv, strategist, race: int) -> list[dict]:
             "AgentSeconds": (real_times.mean() - times[i].mean()).item(),
             "AgentSameTyresPosition": same_positions[i].mean().item(),
             "AgentSameTyresSeconds": (real_times.mean() - same_times[i].mean()).item(),
+            "AgentSameTyresForced": same_forced[i].mean().item(),
+            "AgentSameTyresStops": same_stops[i].mean().item(),
             "AgentStops": float(stops.sum(axis=1).mean()),
             "AgentExample": describe(actions[i][0], int(info.start_compound[car])),
             "AgentForced": forced[i].mean().item(),
@@ -175,13 +179,16 @@ def exploit_checks(table: pl.DataFrame, race_set: RaceSet, stats: dict) -> pl.Da
     return pl.DataFrame({
         "check": ["stops per race", "share of stops made under safety car or VSC",
                   "longest stint (laps)", "share of laps on soft", "share of laps on medium",
-                  "share of laps on hard", "races needing a forced last lap stop"],
+                  "share of laps on hard", "races needing a forced last lap stop",
+                  "team's tyres only: stops per race",
+                  "team's tyres only: races needing a forced last lap stop"],
         "real_teams": [np.mean(team_stops), np.mean(team_caution), np.mean(team_stint),
-                       *team_laps, 0.0],
+                       *team_laps, 0.0, np.mean(team_stops), 0.0],
         "ai_strategist": [fair["AgentStops"].mean(), fair["AgentStopsUnderCaution"].mean(),
                           fair["AgentLongestStint"].mean(), fair["AgentSoftLaps"].mean(),
                           fair["AgentMediumLaps"].mean(), fair["AgentHardLaps"].mean(),
-                          fair["AgentForced"].mean()],
+                          fair["AgentForced"].mean(), fair["AgentSameTyresStops"].mean(),
+                          fair["AgentSameTyresForced"].mean()],
     }).with_columns(pl.col("real_teams", "ai_strategist").round(3))
 
 

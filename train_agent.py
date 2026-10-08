@@ -78,14 +78,22 @@ class Strategist(nn.Module):
 
     def forward(self, view):
         """Returns (the choice distribution over actions, the value)."""
-        choices = torch.distributions.Categorical(logits=self.policy(view))
+        scores = self.policy(view)
+        # The last three numbers of the view say which compounds may be
+        # fitted. A compound that is not allowed gets a score of minus
+        # infinity, which makes its chance exactly zero, so the strategist
+        # can never choose it and learns to plan with what it has.
+        allowed = view[:, -3:] > 0.5
+        may_stay_out = torch.ones_like(allowed[:, :1])
+        scores = scores.masked_fill(~torch.cat([may_stay_out, allowed], dim=1), -torch.inf)
+        choices = torch.distributions.Categorical(logits=scores)
         return choices, self.value(view)[:, 0]
 
 
 def play_round(env: StrategyEnv, strategist: Strategist, generator, seed: int) -> dict:
     """Play RACES_PER_ROUND random races; remember everything that happened."""
-    race, agent = env.random_episodes(RACES_PER_ROUND, generator)
-    view, _ = env.reset(race, agent, seed=seed)
+    race, agent, allowed = env.random_episodes(RACES_PER_ROUND, generator)
+    view, _ = env.reset(race, agent, seed=seed, allowed=allowed)
     memory = {name: [] for name in ["view", "action", "chance", "value", "reward", "racing"]}
     for _ in range(env.set.max_laps):
         racing = ~env.sim.finished()
@@ -190,8 +198,8 @@ def drive(env: StrategyEnv, strategist: Strategist, race, agent, seed: int, grou
           action_seed: int = 0, allowed=None) -> dict:
     """Let the trained strategist drive the given races to the finish.
 
-    `allowed` (B, 3) can limit which compounds it may fit: choices for other
-    compounds are removed before it picks.
+    `allowed` (B, 3) can limit which compounds it may fit. The strategist
+    sees this in its view and cannot choose the others.
 
     Its choices are sampled from the policy, as in training. Taking only its
     single most likely action each lap would not work: when it wants to stop
@@ -204,7 +212,6 @@ def drive(env: StrategyEnv, strategist: Strategist, race, agent, seed: int, grou
     actions = []
     for _ in range(env.set.max_laps):
         chances = strategist(view)[0].probs
-        chances[:, 1:] = chances[:, 1:] * env.allowed
         action = torch.multinomial(chances, 1, generator=generator)[:, 0]
         view, _, _, _, info = env.step(action)
         actions.append(info["action"])

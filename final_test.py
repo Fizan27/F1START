@@ -107,12 +107,21 @@ def strategist(lap_model, stats):
     return agent
 
 
-def strategies(test_set, lap_model, stats, agent):
-    """Steps 5 and 6: brute force and the AI strategist on 2025."""
-    heading("5. Brute force best fixed strategies on 2025")
-    benchmark = strategy_search.benchmark(test_set, lap_model, stats)
-    strategy_search.RESULTS_FOLDER.mkdir(exist_ok=True)
-    benchmark.write_parquet(strategy_search.RESULTS_FOLDER / "benchmark_2025.parquet")
+def strategies(test_set, lap_model, stats, agent, search: bool = True):
+    """Steps 5 and 6: brute force and the AI strategist on 2025.
+
+    search=False reuses the brute force results already saved (the search
+    does not involve the strategist, so it does not change when only the
+    strategist is retrained: DECISIONS.md 33).
+    """
+    file = strategy_search.RESULTS_FOLDER / "benchmark_2025.parquet"
+    if search:
+        heading("5. Brute force best fixed strategies on 2025")
+        benchmark = strategy_search.benchmark(test_set, lap_model, stats)
+        strategy_search.RESULTS_FOLDER.mkdir(exist_ok=True)
+        benchmark.write_parquet(file)
+    else:
+        benchmark = pl.read_parquet(file)
 
     heading("6. AI strategist on 2025, against real teams and fixed strategies")
     env = StrategyEnv(test_set, lap_model, stats, real_events=True)
@@ -135,6 +144,15 @@ def save_app_races():
 def main():
     if "--lap-table" in sys.argv:
         lap_models(retrain=False)
+        return
+    if "--strategist-only" in sys.argv:
+        # Retrain and re-evaluate only the strategist, with the final lap
+        # time network and statistics untouched. Used once, for the fix
+        # described in DECISIONS.md 33.
+        lap_model = LapModel(FINAL / "lap_time_network.pt")
+        stats = simulator.load_stats(FINAL / "race_stats.json")
+        test_set = RaceSet(simulator.load_races(["test"]), lap_model, stats)
+        strategies(test_set, lap_model, stats, strategist(lap_model, stats), search=False)
         return
     if MARKER.exists() and "--again" not in sys.argv:
         raise SystemExit(f"The final test has already been run ({MARKER} exists).")
