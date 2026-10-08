@@ -1,0 +1,14 @@
+# What the WEBSITE needs (app.py). Streamlit Community Cloud installs exactly
+# this file. It uses the CPU-only build of PyTorch, which is far smaller than
+# the GPU build and is all a small free server can run.
+#
+# For developing and training on your own machine, use requirements-dev.txt
+# instead (see the README).
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu
+numpy==2.5.3
+polars==2.0.0
+matplotlib==3.11.2
+gymnasium==1.4.0
+streamlit==1.65.0

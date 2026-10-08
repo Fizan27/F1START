@@ -3,8 +3,13 @@
 __pycache__/
 .pytest_cache/
 
-# Downloaded data: large, and anyone can rebuild it with download_data.py.
+# Downloaded data: large, and anyone can rebuild it with the download scripts.
 data/
+
+# Website build output and installed packages: rebuilt by npm.
+web/node_modules/
+web/.next/
+web/out/
 
 # Editor and Claude Code local settings.
 .vscode/

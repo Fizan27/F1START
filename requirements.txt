@@ -1,14 +1,17 @@
-# What the WEBSITE needs (app.py). Streamlit Community Cloud installs exactly
-# this file. It uses the CPU-only build of PyTorch, which is far smaller than
-# the GPU build and is all a small free server can run.
+# What the Python side of the project needs (Windows, NVIDIA RTX 50 series GPU).
+# The website in web/ needs none of this: it is plain JavaScript.
 #
-# For developing and training on your own machine, use requirements-dev.txt
-# instead (see the README).
+# Install in two steps, because the GPU build of PyTorch lives on PyTorch's
+# own package index. RTX 50 series cards need a build for CUDA 12.8 or newer
+# (cu128, cu130, ...); older builds install but cannot run on the card.
+#
+#   .venv\Scripts\python.exe -m pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu130
+#   .venv\Scripts\python.exe -m pip install -r requirements.txt
 
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.14.1+cpu
 numpy==2.5.3
 polars==2.0.0
+pyarrow
+requests
+fastf1==3.8.3
 matplotlib==3.11.2
-gymnasium==1.4.0
-streamlit==1.65.0
+pytest==9.1.1

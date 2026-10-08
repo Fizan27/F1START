@@ -4,8 +4,7 @@
 #   in the project, so that all charts look like one family.
 # What it reads: nothing.
 # What it produces: nothing on disk.
-# Which files use it: replay_validation.py, evaluate_strategist.py,
-#   final_test.py and app.py.
+# Which files use it: none yet. The validation charts of Phase 2 will.
 
 import matplotlib
 
@@ -13,16 +12,14 @@ matplotlib.use("Agg")  # draw to files, never open a window
 import matplotlib.pyplot as plt
 
 # One fixed colour per thing, used the same way in every chart.
-BLUE = "#2a78d6"  # the simulator / the AI strategist
-ORANGE = "#eb6834"  # the best fixed strategy
-AQUA = "#1baf7a"  # hindsight
-BASELINE = "#898781"  # whatever is being compared against (grid order, the team)
+BLUE = "#2a78d6"  # the model
+ORANGE = "#eb6834"  # a second series
+AQUA = "#1baf7a"  # a third series
+BASELINE = "#898781"  # whatever the model is being compared against
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
 SECOND_INK = "#52514e"
 GRID = "#e6e5e0"
-
-COMPOUND_COLOURS = {"SOFT": "#e34948", "MEDIUM": "#eda100", "HARD": "#898781"}
 
 
 def new_figure(columns: int = 1, width: float = 7.0, height: float = 4.5, **options):
