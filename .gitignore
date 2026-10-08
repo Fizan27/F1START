@@ -1,0 +1,15 @@
+# Python environment and caches: rebuilt from requirements.txt, never committed.
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Downloaded data: large, and anyone can rebuild it with download_data.py.
+data/
+
+# Editor and Claude Code local settings.
+.vscode/
+.claude/
+
+# Secrets must never be committed to this public repo.
+.env
+*.key
