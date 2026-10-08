@@ -54,7 +54,7 @@ FOLLOWING_GAP_SECONDS = 0.4
 SAFETY_CAR_GAP_SECONDS = 0.6
 # Extra slowness per lap of tyre age beyond what the data covers, in percent
 # of pole. Stops the simulator trusting the network where it is guessing.
-WORN_TYRE_PCT_PER_LAP = 0.10
+WORN_TYRE_PCT_PER_LAP = 0.30
 # The share of the measured whole-race driver pace offset that the simulator
 # uses. With all of it (1.0), simulated results were too scattered: 98% of
 # real 2024 finishing positions fell inside a range meant to hold 90%. At 0.4
@@ -463,36 +463,40 @@ class RaceSim:
         """What every car's plan says to do this lap, with rivals reacting to
         a safety car or VSC by bringing their next stop forward. (B, D)"""
         lap = self.lap
-        action = self.plan[:, :, lap - 1].clone()
         for kind, window in REACT_LAPS.items():
             ahead = self.plan[:, :, lap - 1: lap + window]  # this lap and the next few
             has_stop = (ahead > 0).any(dim=2)
             first = (ahead > 0).float().argmax(dim=2, keepdim=True)
             react = (has_stop & (first[:, :, 0] > 0) & ~self.fixed
-                     & (status == kind)[:, None] & (action == 0))
+                     & (status == kind)[:, None])
             if react.any():
                 brought_forward = ahead.gather(2, first)[:, :, 0]
                 age = self.plan_age[:, :, lap - 1: lap + window].gather(2, first)[:, :, 0]
-                action = torch.where(react, brought_forward, action)
-                # Cancel the stop that was brought forward.
+                # Cancel the stop that was planned, and write it into this
+                # lap of the plan instead.
                 cancel = torch.zeros_like(ahead).scatter_(2, first, 1).bool() & react[:, :, None]
                 self.plan[:, :, lap - 1: lap + window] = torch.where(cancel, 0, ahead)
+                self.plan[:, :, lap - 1] = torch.where(
+                    react, brought_forward, self.plan[:, :, lap - 1])
                 self.plan_age[:, :, lap - 1] = torch.where(
                     react, age, self.plan_age[:, :, lap - 1])
-        return action
+        return self.plan[:, :, lap - 1].clone()
 
     # ---- one lap -----------------------------------------------------------
 
     @torch.no_grad()
-    def step(self, action=None):
-        """Drive one lap. `action` (B, D) overrides the plans if given:
+    def step(self, agent=None, agent_action=None):
+        """Drive one lap. Every car follows its plan, except that car
+        `agent` (B,) of each race does `agent_action` (B,) if given:
         0 stay out, 1/2/3 pit at the end of this lap for soft/medium/hard."""
         lap = self.lap
         active = (lap <= self.total_laps)[:, None]  # races not yet finished
         running = self.running(lap)
         status = self.status[:, min(lap, self.status.shape[1]) - 1]
         planned = self.planned_actions(status)
-        action = planned if action is None else action
+        action = planned.clone()
+        if agent is not None:
+            action[self.rows, agent] = agent_action
         # No stops on the final lap: there is nothing left to gain.
         action = torch.where((lap >= self.total_laps)[:, None], 0, action)
         pitting = (action > 0) & running & active

@@ -361,3 +361,68 @@ simulated field is too spread out, with a median gap to the winner of about
 65s against 47s in reality (median error 17s per driver). Likely causes:
 real leaders manage their pace instead of pulling away, and lapped cars are
 not modelled.
+
+## 26. The strategy environment: one car per race, rivals follow history
+
+`strategy_env.py` wraps the simulator in the standard reinforcement learning
+interface (Gymnasium style: `reset()` and `step(action)`), but with tensors,
+so thousands of races step together on the GPU.
+
+- The strategist controls one car. The other 19 follow the strategies their
+  teams really used (bringing a stop forward if a safety car appears, number
+  22). Training a strategist against 19 other learning strategists would be
+  a far harder problem and is out of scope.
+- Four actions each lap: stay out, or pit at the end of this lap for soft,
+  medium or hard.
+- The car starts on the tyres it really started on. Choosing the starting
+  tyre is not part of version one.
+- Two compound rule: on the last lap where a stop is possible, a car that
+  has used only one compound is forced to pit for another. Real rules
+  disqualify instead; forcing keeps every simulated race legal, and the
+  strategist learns that leaving it that late is expensive.
+- What the strategist sees (23 numbers): race progress, tyre age and
+  compound, position, gaps ahead and behind, track status this lap, stops
+  made, compounds used, the circuit's pit loss, its qualifying gap, and the
+  lap time model's view of its pace now and on a new set of each compound.
+  Nothing identifies the circuit by name, so it can drive at circuits it
+  never trained on. Giving it the tyre model's predictions mirrors a real
+  pit wall, where strategists work from tyre models.
+
+## 27. Reward: time lost to the typical car each lap, plus finishing place
+
+- Each lap: minus (own lap time minus the median lap time of the field),
+  divided by 10 seconds. A 22s pit stop costs about 2.2 at once; fresh tyres
+  earn it back a little each lap.
+- At the finish: minus 0.2 per finishing place.
+
+Why two parts: finishing position is the real goal, but as the only reward
+it arrives once per race, long after the decisions that caused it, which
+makes learning slow. Time is a signal on every lap. Why "against the typical
+car" and not the raw lap time: a safety car slows everyone, and the
+strategist should not be punished for something it did not cause. Why
+finishing place is still in: time alone would ignore track position, which
+is what undercuts and safety car stops are really about.
+
+Risk accepted: with time in the reward, the strategist could prefer a
+slightly faster race over a better position. The evaluation reports places
+and seconds separately so this would show.
+
+## 28. PPO settings, and why its choices are sampled when it is evaluated
+
+Own implementation of PPO in about 100 lines (`train_agent.py`): 4,096
+simulated races per round, 150 rounds, two networks of 2 x 128 units, clip
+0.2, GAE lambda 0.95, no discounting (races are short and always end),
+learning rate 0.0003. Training takes under 5 minutes on the RTX 5070 Ti.
+
+- Head start: a new policy starts choosing "stay out" about 98% of the time.
+  An untrained network picks each of the 4 actions equally, so it would pit
+  on three laps out of four, every race would be a disaster, and the useful
+  region (one or two stops) would take a long time to find.
+- Sampling at evaluation: the strategist's choices are drawn from its policy,
+  as in training, not taken as the single most likely action. When it wants
+  to stop "some time in the next few laps" it spreads that over several
+  laps, and on each one staying out is still the most likely choice, so the
+  most-likely rule would never stop at all. Results are averaged over 200
+  simulations per driver, so the sampling noise is small.
+- Training races: the 32 dry 2022 to 2023 races, any finisher's car, with
+  random safety cars drawn from the measured rates.

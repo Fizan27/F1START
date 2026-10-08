@@ -20,7 +20,6 @@
 
 from pathlib import Path
 
-import lightgbm as lgb
 import numpy as np
 import polars as pl
 
@@ -96,8 +95,12 @@ def training_laps(train: pl.DataFrame) -> pl.DataFrame:
     return train.filter(~pl.col("IsWetRace") & (pl.col(TARGET) < OUTLIER_PCT))
 
 
-def train_model(train: pl.DataFrame, inputs: list[str]) -> lgb.LGBMRegressor:
+def train_model(train: pl.DataFrame, inputs: list[str]):
     """Fit the gradient boosting model on the training laps."""
+    # Imported here, not at the top, so that the website (which loads this
+    # file indirectly but never trains a baseline) does not need LightGBM.
+    import lightgbm as lgb
+
     train = training_laps(train)
     # 500 small trees, each making a small (0.05) correction to the ones
     # before. random_state=0 makes the result the same on every run.

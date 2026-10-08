@@ -115,46 +115,36 @@ def summary_table(rows: list[dict]) -> pl.DataFrame:
 def save_chart(rows: list[dict], season: str, file: Path = CHART_FILE):
     """Left: predicted against real finishing position for every driver.
     Right: the simulator's miss per race, next to the grid order's miss."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    import chart_style as style
 
-    blue, grey, ink = "#2563eb", "#9ca3af", "#111827"
-    figure, (left, right) = plt.subplots(1, 2, figsize=(13, 5.5), width_ratios=[1, 1.5])
+    figure, (left, right) = style.new_figure(2, width=13, height=5.5, width_ratios=[1, 1.5])
     predicted = np.concatenate([row["_predicted"] for row in rows])
     actual = np.concatenate([row["_actual"] for row in rows])
     jitter = np.random.default_rng(0).uniform(-0.18, 0.18, size=(2, len(actual)))
-    left.plot([1, 20], [1, 20], color=grey, linewidth=1, zorder=1)
-    left.scatter(actual + jitter[0], predicted + jitter[1], s=14, color=blue, alpha=0.45,
-                 linewidths=0, zorder=2)
+    left.plot([1, 20], [1, 20], color=style.BASELINE, linewidth=1, zorder=1)
+    left.scatter(actual + jitter[0], predicted + jitter[1], s=16, color=style.BLUE,
+                 alpha=0.45, linewidths=0, zorder=2)
     left.set_xlabel("Real finishing position")
     left.set_ylabel("Simulated finishing position")
-    left.set_title(f"Every finisher, {season}\n(on the line = exactly right)",
-                   loc="left", fontsize=11, color=ink)
     left.set_xlim(0.3, 20.7)
     left.set_ylim(0.3, 20.7)
     left.set_xticks([1, 5, 10, 15, 20])
     left.set_yticks([1, 5, 10, 15, 20])
     left.set_aspect("equal")
+    style.tidy(left, f"Every finisher, {season}\n(on the line = exactly right)", "both")
 
     names = [row["race"].replace(" Grand Prix", "") for row in rows]
     where = np.arange(len(rows))
-    right.barh(where - 0.2, [row["position_miss"] for row in rows], height=0.38,
-               color=blue, label="Simulator")
-    right.barh(where + 0.2, [row["grid_order_miss"] for row in rows], height=0.38,
-               color=grey, label="Grid order (no simulation)")
+    right.barh(where - 0.2, [row["position_miss"] for row in rows], height=0.36,
+               color=style.BLUE, label="Simulator")
+    right.barh(where + 0.2, [row["grid_order_miss"] for row in rows], height=0.36,
+               color=style.BASELINE, label="Grid order (no simulation)")
     right.set_yticks(where, names, fontsize=8)
     right.invert_yaxis()
     right.set_xlabel("Average miss in finishing position (lower is better)")
-    right.set_title("Miss per race", loc="left", fontsize=11, color=ink)
     right.legend(frameon=False, fontsize=9)
-    for axes in (left, right):
-        axes.spines[["top", "right"]].set_visible(False)
-    figure.tight_layout()
-    file.parent.mkdir(exist_ok=True)
-    figure.savefig(file, dpi=130)
-    plt.close(figure)
-    print(f"\nChart saved to {file}")
+    style.tidy(right, "Miss per race")
+    style.save(figure, file)
 
 
 def print_report(rows: list[dict]):

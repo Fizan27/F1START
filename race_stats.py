@@ -296,14 +296,21 @@ def add_pit_shares_for_simulator(stats: dict, typical_race_pace_pct: float):
 
 
 def tyre_life_limits(laps: pl.DataFrame) -> dict:
-    """The oldest tyre age the lap time model has real evidence for.
+    """The oldest tyre age the lap time model has good evidence for.
 
-    99% of clean laps on each compound were driven on tyres younger than
-    this. Beyond it the lap time model is guessing, so the simulator adds a
-    penalty there instead of trusting it (DECISIONS.md, number 23).
+    90% of real stints on each compound ended at or before this tyre age.
+    The laps beyond it come only from tyres that happened to be lasting
+    unusually well, so the lap time model is too optimistic there. The
+    simulator adds a penalty beyond this age instead of trusting the model
+    (DECISIONS.md, number 23).
     """
-    clean = laps.filter(pl.col("IsCleanLap"))
-    limits = clean.group_by("Compound").agg(pl.col("TyreLife").quantile(0.99).alias("limit"))
+    stints = (
+        laps.filter(pl.col("Compound").is_in(["SOFT", "MEDIUM", "HARD"]))
+        .group_by(RACE + ["Driver", "Stint", "Compound"])
+        .agg(pl.col("TyreLife").max().alias("end_age"), pl.len().alias("laps"))
+        .filter(pl.col("laps") >= 5)  # ignore stints cut short at once
+    )
+    limits = stints.group_by("Compound").agg(pl.col("end_age").quantile(0.9).alias("limit"))
     return {"tyre_life_limit": dict(zip(limits["Compound"], limits["limit"].cast(pl.Int32)))}
 
 
