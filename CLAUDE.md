@@ -23,19 +23,17 @@ every important design decision in an interview.
   Beginner friendly code that is still correct and well tested.
 - Keep docs/MAP.md up to date: a simple diagram of how the files connect and the
   order things run in.
-- Work in tiny steps. Before writing code, say in two or three sentences what
-  will be built and why. After writing it, say exactly how to run it and what
-  should be seen.
-- Speed plan:
-  - Build QUICKLY and normally: setup, data downloading and cleaning, the
-    Streamlit app, tests and deployment.
-  - TEACH the core ML parts: the lap time model and its uncertainty, the replay
-    validation, the simulator logic, the reward design, and the PPO training and
-    evaluation. For these: explain the idea first in plain English, leave the
-    key lines as `TODO(human)` with hints for the owner to write, then correct
-    their code kindly.
-- At the end of each phase, ask the owner to explain back, in their own words,
-  how that phase works and how the files connect. Correct the explanation.
+- Working mode (changed by the owner on 2026-10-08): finish the project as
+  fast as possible. Do NOT ask questions and do NOT wait for approval between
+  steps. Make reasonable decisions and log each one in docs/DECISIONS.md.
+  No `TODO(human)` lines: write all the code. Only stop for things that
+  cannot be done without the owner (creating the GitHub repository, logging
+  in to Streamlit Community Cloud), and then give exact click by click steps.
+- Commit after each step, and push once the GitHub remote exists.
+- Never spend money: free tools and free hosting only.
+- The owner still has to explain this project in interviews, so the core ML
+  code keeps plain English comments that explain the idea next to the code,
+  and docs/INTERVIEW_GUIDE.md explains each part and the likely questions.
 - Keep docs/DECISIONS.md with each significant decision and why.
 - Show results as tables and simple charts, and keep a results section in
   README.md updated with real, measured numbers, including weaknesses.

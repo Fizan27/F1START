@@ -292,13 +292,50 @@ def range_table(validation: pl.DataFrame, centre, spread) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
-def save_model(model, scaling: dict):
-    """Save the weights and the input preparation numbers together."""
+def widening_factor(laps: pl.DataFrame, centre, spread) -> float:
+    """The one number to multiply every spread by so the ranges are honest.
+
+    The raw network is a little overconfident. For each dry lap, measure the
+    miss in spreads. If the spreads were honest, 90% of those would be below
+    1.645. Find the value that 90% of them are actually below, and divide:
+    that is how much wider every spread needs to be. This is called
+    calibration. It changes no prediction's centre, only the spreads.
+    """
+    dry = (~laps["IsWetRace"]).to_numpy()
+    misses_in_spreads = np.abs(laps[TARGET].to_numpy() - centre)[dry] / spread[dry]
+    return float(np.quantile(misses_in_spreads, RANGE_TARGET) / RANGE_SPREADS)
+
+
+def save_model(model, scaling: dict, factor: float, file: Path = MODEL_FILE):
+    """Save the weights, the input preparation numbers and the calibration."""
     # The simulator must prepare its inputs in exactly the same way, so the
-    # scaling numbers travel with the weights in one file.
-    MODEL_FILE.parent.mkdir(exist_ok=True)
-    torch.save({"weights": model.state_dict(), "scaling": scaling}, MODEL_FILE)
-    print(f"\nSaved the trained network to {MODEL_FILE}")
+    # scaling numbers and the widening factor travel with the weights.
+    file.parent.mkdir(exist_ok=True)
+    torch.save({"weights": model.state_dict(), "scaling": scaling,
+                "spread_factor": factor}, file)
+    print(f"\nSaved the trained network to {file}")
+
+
+def fit_network(learn_from: pl.DataFrame, check: pl.DataFrame):
+    """Train on `learn_from`, watching the loss on `check`. Returns
+    (model, scaling)."""
+    scaling = learn_scaling(learn_from)
+    # The loss printed during training uses the same kind of laps on both
+    # sides (dry, no outliers), so the two columns can be compared.
+    like_for_like = to_tensors(baseline.training_laps(check), scaling)
+    model = train_network(to_tensors(learn_from, scaling), like_for_like,
+                          len(scaling["circuits"]))
+    return model, scaling
+
+
+def report(train, check, centre, spread, factor: float, season: str):
+    """Print the comparison with the baseline and the range tables."""
+    print(f"\n1. Pace within the race, on {season}. Miss in seconds per lap:")
+    print(pl.DataFrame([baseline_row(train, check), score_network(check, centre)]))
+    print("\n2. Are the predicted ranges honest? Straight from the network:")
+    print(range_table(check, centre, spread))
+    print(f"\n3. After widening every spread by {factor:.3f}:")
+    print(range_table(check, centre, spread * factor))
 
 
 def main():
@@ -306,23 +343,13 @@ def main():
     train, validation = baseline.split_by_season(laps)
     learn_from = baseline.training_laps(train)  # dry races, no outlier laps
 
-    scaling = learn_scaling(learn_from)
-    train_data = to_tensors(learn_from, scaling)
-    validation_data = to_tensors(validation, scaling)
-
-    # The loss printed during training uses the same kind of laps on both
-    # sides (dry, no outliers), so the two columns can be compared. The
-    # scores afterwards use every 2024 lap.
-    like_for_like = to_tensors(baseline.training_laps(validation), scaling)
-
-    model = train_network(train_data, like_for_like, len(scaling["circuits"]))
-    centre, spread = predict(model, validation_data)
-
-    print("\n1. Pace within the race, on 2024 (validation). Miss in seconds per lap:")
-    print(pl.DataFrame([baseline_row(train, validation), score_network(validation, centre)]))
-    print("\n2. Are the predicted ranges honest?")
-    print(range_table(validation, centre, spread))
-    save_model(model, scaling)
+    model, scaling = fit_network(learn_from, validation)
+    centre, spread = predict(model, to_tensors(validation, scaling))
+    # The factor is chosen on 2024, so table 3 hits 90% on 2024 by
+    # construction. The honest check of the calibration is the 2025 test.
+    factor = widening_factor(validation, centre, spread)
+    report(train, validation, centre, spread, factor, "2024 (validation)")
+    save_model(model, scaling, factor)
 
 
 if __name__ == "__main__":

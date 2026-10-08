@@ -239,3 +239,24 @@ Chosen by trying values and scoring on 2024 (averaged over two random seeds):
 - Each circuit is described by 4 learned numbers (an embedding). On 10% of
   training laps the circuit is replaced by "unknown", so the network learns a
   general answer to use at circuits it has never seen.
+
+## 18. The network's ranges are widened by one factor (calibration)
+
+Straight from training, 86.6% of dry 2024 laps fell inside the network's 90%
+range: slightly overconfident. Every spread is now multiplied by one factor,
+1.145, chosen so that exactly 90% of dry 2024 laps fall inside. The factor is
+saved in the model file and the simulator always uses the widened spreads.
+
+- Why one factor and not something cleverer: it fixes the measured problem,
+  changes no prediction's centre, and is one line to explain.
+- Honesty note: the factor is chosen on 2024, so 2024 coverage is 90% by
+  construction and proves nothing. The real check is the 2025 test.
+- For the final model (retrained on 2022 to 2024) the same 1.145 is reused,
+  because 2024 is then training data and cannot also be used to calibrate.
+
+## 19. Working mode changed: no TODOs, no approval between steps
+
+On 2026-10-08 the owner asked for the project to be finished as fast as
+possible without questions or TODO(human) lines, with decisions logged here.
+CLAUDE.md was updated to match. Decisions from here on were made by the
+assistant and are recorded with their reasons and measured effects.

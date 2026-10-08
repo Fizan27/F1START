@@ -58,12 +58,13 @@ VARIANTS = {
 CHOSEN = "basic + circuit"
 
 
-def load_clean_laps() -> pl.DataFrame:
+def load_clean_laps(include_test: bool = False) -> pl.DataFrame:
     """Load the clean racing laps the model is allowed to see."""
     laps = pl.read_parquet(LAPS_FILE)
     # 2025 is the final exam. Dropping it here, right at the door, means
-    # nothing in this file can peek at it by accident.
-    laps = laps.filter(pl.col("Split") != "test")
+    # nothing can peek at it by accident. Only final_test.py asks for it.
+    if not include_test:
+        laps = laps.filter(pl.col("Split") != "test")
     laps = laps.filter(pl.col("IsCleanLap"))
     circuits = pl.Enum(sorted(laps["Circuit"].unique().to_list()))
     return laps.with_columns(
