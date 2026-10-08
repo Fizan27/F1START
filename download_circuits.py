@@ -34,20 +34,24 @@ OUTPUT_FOLDER = Path("web/public/data/circuits")
 # number 0.37 x 240, with no further maths.
 POINTS_PER_CIRCUIT = 240
 BOX_SIZE = 1000  # outlines are scaled to fit a 1000 x 1000 square
+MIN_DIFFERENT_POSITIONS = 150  # fewer than this in a lap means a frozen feed
 
 
-def latest_race_per_circuit(results: pl.DataFrame) -> list[dict]:
-    """The most recent race at each circuit since 2018, one row per circuit.
+def races_per_circuit(results: pl.DataFrame) -> dict[str, list[dict]]:
+    """Every race since 2018 at each circuit, newest first.
 
-    The most recent is used because layouts change (Abu Dhabi and Melbourne
-    were both reshaped), and the newest layout is the one people know.
+    The newest is tried first because layouts change (Abu Dhabi and Melbourne
+    were both reshaped), and the newest layout is the one people know. Older
+    races are the fallback when a race has no position data.
     """
     races = results.filter(pl.col("Year") >= FIRST_SEASON).group_by("Year", "Round").agg(
         pl.col("CircuitId", "CircuitName", "Country").first(),
         pl.col("Laps").max().alias("RaceLaps"),
     )
-    latest = races.sort("Year", "Round").unique("CircuitId", keep="last")
-    return latest.sort("CircuitId").to_dicts()
+    by_circuit = {}
+    for race in races.sort("Year", "Round", descending=True).to_dicts():
+        by_circuit.setdefault(race["CircuitId"], []).append(race)
+    return dict(sorted(by_circuit.items()))
 
 
 def fastest_lap_positions(year: int, round_number: int) -> tuple[np.ndarray, float, float]:
@@ -58,10 +62,35 @@ def fastest_lap_positions(year: int, round_number: int) -> tuple[np.ndarray, flo
     """
     session = fastf1.get_session(year, round_number, "R")
     session.load(laps=True, telemetry=True, weather=False, messages=False)
-    lap = session.laps.pick_fastest()
-    positions = lap.get_pos_data()
-    points = positions[["X", "Y"]].to_numpy(dtype=float)
-    return points, lap["LapTime"].total_seconds(), session.get_circuit_info().rotation
+    lap_seconds = session.laps.pick_fastest()["LapTime"].total_seconds()
+    # Position data is sometimes missing for one car, so try the quickest few
+    # laps in turn until one has it.
+    for _, lap in session.laps.pick_quicklaps().sort_values("LapTime").head(20).iterrows():
+        positions = lap.get_pos_data()
+        if "X" not in positions:
+            continue
+        points = positions[["X", "Y"]].to_numpy(dtype=float)
+        if has_enough_detail(points):
+            return points, lap_seconds, map_rotation(session)
+    raise ValueError("no lap in this race has good position data")
+
+
+def has_enough_detail(points: np.ndarray) -> bool:
+    """False when the recording is too coarse to draw a smooth track.
+
+    A good lap has about 300 different positions. In a few races the feed
+    froze for seconds at a time, repeating the same position, which would
+    draw the track as a rough polygon.
+    """
+    return len(np.unique(points, axis=0)) >= MIN_DIFFERENT_POSITIONS
+
+
+def map_rotation(session) -> float:
+    """Degrees to turn the map. 0 for new circuits FastF1 has no map details for."""
+    try:
+        return session.get_circuit_info().rotation
+    except Exception:
+        return 0.0
 
 
 def resample_evenly(points: np.ndarray, count: int) -> np.ndarray:
@@ -131,18 +160,21 @@ def main():
     fastf1.Cache.enable_cache(str(CACHE_FOLDER))
     logging.getLogger("fastf1").setLevel(logging.CRITICAL)  # hide progress chatter
 
-    for race in latest_race_per_circuit(pl.read_parquet(RESULTS_FILE)):
-        file = OUTPUT_FOLDER / f"{race['CircuitId']}.json"
+    for circuit_id, races in races_per_circuit(pl.read_parquet(RESULTS_FILE)).items():
+        file = OUTPUT_FOLDER / f"{circuit_id}.json"
         if file.exists():
             continue
-        try:
-            circuit = build_circuit(race)
+        for race in races:
+            try:
+                circuit = build_circuit(race)
+            except Exception as error:
+                # One bad race must not stop the rest: try the one before it.
+                print(f"{circuit_id:<16} {race['Year']}  FAILED: {error}")
+                continue
             # separators without spaces keeps the file as small as possible
             file.write_text(json.dumps(circuit, separators=(",", ":")), encoding="utf-8")
-            print(f"{race['CircuitId']:<16} {race['Year']}  lap {circuit['lapSeconds']:.1f}s")
-        except Exception as error:
-            # One bad circuit must not stop the rest. Run again to retry.
-            print(f"{race['CircuitId']:<16} FAILED: {error}")
+            print(f"{circuit_id:<16} {race['Year']}  lap {circuit['lapSeconds']:.1f}s")
+            break
 
     print(f"\nDone. {write_index()} circuits in {OUTPUT_FOLDER}.")
 

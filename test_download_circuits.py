@@ -33,12 +33,20 @@ def test_outline_fits_the_box_without_being_stretched():
     assert fitted[0].tolist() == [0, 500]
 
 
+def test_a_frozen_position_feed_is_rejected():
+    angles = np.linspace(0, 2 * np.pi, 300, endpoint=False)
+    smooth = np.column_stack([np.cos(angles), np.sin(angles)])
+    frozen = np.repeat(smooth[::25], 25, axis=0)  # 300 rows, only 12 positions
+    assert download_circuits.has_enough_detail(smooth)
+    assert not download_circuits.has_enough_detail(frozen)
+
+
 def test_rotating_by_a_quarter_turn():
     turned = download_circuits.rotate(np.array([[1.0, 0.0]]), 90)
     assert np.allclose(turned, [[0.0, 1.0]])
 
 
-def test_latest_race_per_circuit_picks_the_newest_and_ignores_old_seasons():
+def test_races_per_circuit_are_newest_first_and_ignore_old_seasons():
     results = pl.DataFrame({
         "Year": [2010, 2019, 2024, 2024],
         "Round": [1, 5, 3, 3],
@@ -47,5 +55,6 @@ def test_latest_race_per_circuit_picks_the_newest_and_ignores_old_seasons():
         "Country": ["Australia", "Italy", "Italy", "Italy"],
         "Laps": [80, 53, 53, 20],
     })
-    races = download_circuits.latest_race_per_circuit(results)
-    assert [(race["CircuitId"], race["Year"], race["RaceLaps"]) for race in races] == [("monza", 2024, 53)]
+    races = download_circuits.races_per_circuit(results)
+    assert list(races) == ["monza"]
+    assert [(race["Year"], race["RaceLaps"]) for race in races["monza"]] == [(2024, 53), (2019, 53)]

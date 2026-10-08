@@ -183,6 +183,16 @@ Only circuits raced since 2018 have an outline, because that is where FastF1's
 position data starts. Fantasy races on the website are limited to those
 circuits. The most recent layout is used when a circuit has changed.
 
+Result: 33 circuits, 78 KB in total. All 33 were drawn on one sheet and checked
+by eye. Two problems turned up and are handled in the script:
+
+- Some races have no usable position data (Monaco 2026 has none; in Budapest
+  2026 the feed froze for seconds at a time and drew the track as a polygon).
+  The script rejects a lap with fewer than 150 different positions and falls
+  back to the race before it at the same circuit.
+- FastF1 has no map details for the two newest circuits (Madrid and the
+  returning Sepang), so those two are not turned to the usual TV orientation.
+
 ## 14. What the cleaned data showed, and the weaknesses it exposed
 
 Measured by `clean_history.py` on data downloaded 2026-10-09 (1950 to round 16
