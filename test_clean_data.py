@@ -99,6 +99,18 @@ def test_qualifying_pace():
     assert [round(pct, 6) for pct in result["LapTimePct"].to_list()] == [3.0, 5.0, 5.0, 5.0]
 
 
+def test_race_pace_ignores_laps_that_are_not_clean():
+    # Clean laps are 8, 9 and 10 percent off pole, so the typical lap is 9.
+    # The 60 percent lap is a safety car lap and must not move the yardstick.
+    laps = one_race(
+        LapTimePct=[8.0, 9.0, 10.0, 60.0],
+        IsCleanLap=[True, True, True, False],
+    )
+    result = clean_data.add_race_pace(laps)
+    assert result["RacePacePct"].to_list() == [9.0] * 4
+    assert result["PaceVsRacePct"].to_list() == [-1.0, 0.0, 1.0, 51.0]
+
+
 def test_clean_lap_flag_rejects_non_racing_laps():
     laps = one_race(
         LapTime=[90.0, 90.0, 90.0, 90.0, None, 90.0],

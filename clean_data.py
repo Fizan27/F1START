@@ -205,6 +205,28 @@ def add_clean_lap_flag(laps: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def add_race_pace(laps: pl.DataFrame) -> pl.DataFrame:
+    """Add RacePacePct and PaceVsRacePct, which split lap time into two parts.
+
+    RacePacePct: the race's typical clean lap, as percent slower than pole.
+      One number per race. It says how hard the whole field was running
+      (Monaco is driven far below qualifying pace; Lusail is nearly flat out).
+    PaceVsRacePct: how much slower (+) or faster (-) this lap was than that
+      typical lap. This is what tyres, fuel, traffic and the car decide, and
+      it is the lap time model's target.
+
+    CAREFUL: RacePacePct is worked out from the whole race, so it is only
+    known once the race is over. It must never be a model INPUT. Why this is
+    still fair to use as the yardstick: docs/DECISIONS.md, number 12.
+    """
+    # The median (middle value) is used instead of the average so that a few
+    # very slow laps cannot drag the yardstick.
+    typical = pl.col("LapTimePct").filter(pl.col("IsCleanLap")).median().over(RACE)
+    return laps.with_columns(typical.alias("RacePacePct")).with_columns(
+        (pl.col("LapTimePct") - pl.col("RacePacePct")).alias("PaceVsRacePct")
+    )
+
+
 def build_clean_laps() -> pl.DataFrame:
     """Run every cleaning step in order."""
     laps = tidy_laps(read_raw("laps"))
@@ -216,6 +238,7 @@ def build_clean_laps() -> pl.DataFrame:
     laps = add_results(laps, read_raw("results"))
     laps = add_qualifying_pace(laps, pl.read_parquet(QUALIFYING_FILE))
     laps = add_clean_lap_flag(laps)
+    laps = add_race_pace(laps)
     return laps.sort(RACE + ["Driver", "LapNumber"])
 
 

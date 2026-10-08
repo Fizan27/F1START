@@ -119,6 +119,57 @@ can predict there without recognising the track. Circuit as an input is then
 tested as an experiment on 2024, with Shanghai's error always reported
 separately as the "new circuit" result.
 
-Known and still open: about 0.5% of clean laps are more than 7% slower than
-the race's typical lap (mistakes, damage, a drying track). Whether and how to
-filter them is decided in the modelling step, using 2024 validation scores.
+About 1% of clean laps are far slower than the race's typical lap (mistakes,
+damage, a drying track). How they are handled: number 13.
+
+## 12. Lap time is split into a race pace level and pace within the race
+
+The first baseline predicted `LapTimePct` (percent slower than pole) directly
+and lost to always guessing the average: 2.63s typical miss against 2.09s on
+2024. The circuit table showed why. On most circuits the bias was as big as
+the miss, meaning the model was wrong by the same amount on every lap of a
+race. How far below qualifying pace a race is run varies from about 5% to 13%
+between races, and no lap-level input can explain that.
+
+So lap time is now two parts:
+
+- `RacePacePct`: the race's typical (median) clean lap, in percent slower than
+  pole. One number per race.
+- `PaceVsRacePct`: how a lap differs from that typical lap. This is the lap
+  time model's target.
+
+Why this is the right split for a strategy tool: the race pace level moves
+every car by the same amount, so it does not change the finishing order, the
+gaps between cars, or which strategy is best. Everything strategy depends on
+(tyre wear, compound, fuel, traffic, car pace) lives in the second part.
+
+The honesty cost, stated plainly: `RacePacePct` is computed from the whole
+race, so it is only known afterwards. That is fine for replaying a past race
+("what if they had pitted differently?"), which is what the app does. It
+would not be fine to call the within-race error a forecast of lap times
+before a race. So two numbers are always reported separately: the within-race
+error, and the error of forecasting the race pace level from earlier seasons
+only (the circuit's average). `RacePacePct` is never a model input.
+
+This partly supersedes number 9: pole is still the unit (percent of pole) and
+still feeds `QualiGapPct`, but it is no longer the yardstick for the target.
+
+## 13. Outlier laps are removed from training but kept in scoring
+
+Laps more than 5% slower than the race's typical lap (about 1 in 100) are
+left out of training: the model cannot predict a spin, and trying to pulls its
+other predictions off. Measured on 2024, removing them cut the mean miss from
+0.85s to 0.73s. They stay in the validation scores, because dropping them
+there would flatter the model. Both mean and median miss are reported: the
+median shows a typical lap, the mean shows the cost of the bad laps.
+
+## 14. Baseline inputs: circuit is in, temperatures are out
+
+Chosen by comparison on 2024 (mean miss per lap, within the race):
+know-nothing 1.085s, basic inputs 0.725s, basic plus temperatures 0.783s,
+basic plus circuit 0.684s.
+
+- Temperatures made it worse. They hardly change within a race, so they act
+  as a fingerprint of the race and the trees memorise training races.
+- Circuit helped, including at Shanghai, which training never saw (0.58s to
+  0.54s there), so the worry in number 11 did not materialise for LightGBM.

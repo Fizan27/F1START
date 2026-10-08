@@ -31,14 +31,22 @@ is added.
                          Everything after this reads only this file.
         |
         v
- train_baseline.py       step 3 (IN PROGRESS, has TODO(human) lines): LightGBM
-                         lap time baseline, trained on 2022-23, scored on
-                         2024. Prints error tables; saves nothing yet.
+ train_baseline.py       step 3: LightGBM lap time baseline, trained on
+        |                2022-23, scored on 2024. Compares input choices and
+        |                prints error tables; saves nothing yet.
+        v
+ neural network          step 4 (NEXT, not built yet): PyTorch model on the
+                         GPU that predicts a range of lap times
 ```
 
-The model's target is `LapTimePct` (percent slower than the weekend's pole
-lap) and car pace comes from `QualiGapPct`. Both are built in `clean_data.py`
-from `data/raw/qualifying.parquet`. Why: DECISIONS.md 9 and 10.
+Lap time is split in two (DECISIONS.md 12), both built in `clean_data.py`:
+
+- `RacePacePct`: the race's typical lap, percent slower than pole. One number
+  per race, only known after the race. Never a model input.
+- `PaceVsRacePct`: how a lap differs from that. The model's target.
+
+Car pace comes from `QualiGapPct`, from `data/raw/qualifying.parquet`
+(DECISIONS.md 10).
 
 ## The season split (never mix these up)
 
