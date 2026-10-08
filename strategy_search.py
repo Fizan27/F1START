@@ -40,25 +40,27 @@ FINAL_SAMPLES = 64  # simulations per strategy in the second pass
 FORCED_STOP_LAPS = 3  # a real stop this early was forced by damage
 
 
-def candidate_plans(total_laps: int, start_compound: int, max_laps: int) -> torch.Tensor:
+def candidate_plans(total_laps: int, start_compound: int, max_laps: int,
+                    allowed=(0, 1, 2)) -> torch.Tensor:
     """Every fixed strategy worth trying, as plans of shape (P, max_laps).
 
     A plan holds, for each lap, 0 (stay out) or 1 + compound (pit at the end
     of this lap). The two compound rule is respected: at least two different
-    compounds must be used, counting the starting tyres.
+    compounds must be used, counting the starting tyres. `allowed` limits
+    which compounds may be fitted.
     """
     plans = []
     first, last = MIN_STINT_LAPS, total_laps - MIN_STINT_LAPS
     for lap in range(first, last + 1, ONE_STOP_STEP):
-        for compound in range(3):
+        for compound in allowed:
             if compound != start_compound:
                 plan = np.zeros(max_laps, dtype=np.int64)
                 plan[lap - 1] = 1 + compound
                 plans.append(plan)
     for lap_one in range(first, last + 1, TWO_STOP_STEP):
         for lap_two in range(lap_one + MIN_STINT_LAPS, last + 1, TWO_STOP_STEP):
-            for compound_one in range(3):
-                for compound_two in range(3):
+            for compound_one in allowed:
+                for compound_two in allowed:
                     if len({start_compound, compound_one, compound_two}) >= 2:
                         plan = np.zeros(max_laps, dtype=np.int64)
                         plan[lap_one - 1] = 1 + compound_one
@@ -110,8 +112,21 @@ def simulate_plans(race_set: RaceSet, lap_model: LapModel, stats: dict, race: in
             sim.time[:, car].reshape(shape))
 
 
+def team_compounds(info, car: int) -> tuple:
+    """The compounds this car really used in the race (as numbers).
+
+    Used for the fairer "same tyres" comparison. The simulator overrates
+    soft tyres (DECISIONS.md 29), and it does not know which tyre sets a
+    team had left, so an alternative strategy on tyres the team never
+    fitted says little. If the car somehow used one compound only, all
+    three are allowed.
+    """
+    used = {int(info.start_compound[car])} | {int(c) - 1 for c in info.plan[car] if c > 0}
+    return tuple(sorted(used)) if len(used) >= 2 else (0, 1, 2)
+
+
 def best_fixed_plan(race_set, lap_model, stats, race: int, car: int, real_events: bool,
-                    seed: int = 0) -> torch.Tensor:
+                    seed: int = 0, allowed=(0, 1, 2)) -> torch.Tensor:
     """Search all candidate plans; returns the best one, shape (max_laps,).
 
     Two passes: a quick look at every plan, then a careful look at the best
@@ -119,7 +134,8 @@ def best_fixed_plan(race_set, lap_model, stats, race: int, car: int, real_events
     Best means lowest average finishing position, then lowest race time.
     """
     info = race_set.races[race]
-    plans = candidate_plans(info.total_laps, int(info.start_compound[car]), race_set.max_laps)
+    plans = candidate_plans(info.total_laps, int(info.start_compound[car]),
+                            race_set.max_laps, allowed)
 
     def ranked(plans, samples, seed):
         positions, times = simulate_plans(race_set, lap_model, stats, race, car, plans,
@@ -144,13 +160,14 @@ def benchmark_driver(race_set, lap_model, stats, race: int, car: int, samples: i
     start = int(info.start_compound[car])
     before_race = best_fixed_plan(race_set, lap_model, stats, race, car, real_events=False)
     hindsight = best_fixed_plan(race_set, lap_model, stats, race, car, real_events=True)
-    # The final comparison: all three in the race as it really unfolded,
+    same_tyres = best_fixed_plan(race_set, lap_model, stats, race, car, real_events=False,
+                                 allowed=team_compounds(info, car))
+    # The final comparison: all of them in the race as it really unfolded,
     # facing the same luck. Seed 999 is not used anywhere in the search.
     real_plan = race_set.plan[race, car].cpu()
-    plans = torch.stack([real_plan, before_race, hindsight])
-    ages = torch.stack([race_set.plan_age[race, car].cpu(),
-                        torch.zeros_like(race_set.plan_age[race, car].cpu()),
-                        torch.zeros_like(race_set.plan_age[race, car].cpu())])
+    plans = torch.stack([real_plan, before_race, hindsight, same_tyres])
+    real_ages = race_set.plan_age[race, car].cpu()
+    ages = torch.stack([real_ages] + [torch.zeros_like(real_ages)] * 3)
     positions, times = simulate_plans(race_set, lap_model, stats, race, car, plans, samples,
                                       real_events=True, seed=999, ages=ages)
     position, seconds = positions.mean(dim=1).tolist(), times.mean(dim=1).tolist()
@@ -167,6 +184,8 @@ def benchmark_driver(race_set, lap_model, stats, race: int, car: int, samples: i
         "FixedPosition": position[1], "FixedSeconds": seconds[0] - seconds[1],
         "HindsightStrategy": describe(hindsight, start),
         "HindsightPosition": position[2], "HindsightSeconds": seconds[0] - seconds[2],
+        "SameTyresStrategy": describe(same_tyres, start),
+        "SameTyresPosition": position[3], "SameTyresSeconds": seconds[0] - seconds[3],
     }
 
 
@@ -206,6 +225,7 @@ def summary(table: pl.DataFrame) -> pl.DataFrame:
     return pl.DataFrame([
         row("best fixed plan, chosen before the race", "FixedPosition", "FixedSeconds"),
         row("best fixed plan, chosen with hindsight", "HindsightPosition", "HindsightSeconds"),
+        row("best fixed plan, only the team's tyres", "SameTyresPosition", "SameTyresSeconds"),
     ])
 
 

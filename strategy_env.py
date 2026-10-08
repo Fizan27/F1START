@@ -63,10 +63,13 @@ class StrategyEnv:
         agent = torch.multinomial(self.finisher[race], 1, generator=generator)[:, 0]
         return race, agent
 
-    def reset(self, race, agent, seed: int = 0, group=None):
+    def reset(self, race, agent, seed: int = 0, group=None, allowed=None):
         """Start the races. `race` (B,) and `agent` (B,) say which race each
-        one is and which car the strategist drives. Returns (view, info)."""
+        one is and which car the strategist drives. `allowed` (B, 3) can
+        limit which compounds may be fitted. Returns (view, info)."""
         self.agent = agent
+        self.allowed = (torch.ones(len(race), 3, dtype=torch.bool, device=self.device)
+                        if allowed is None else allowed)
         plan = self.set.plan[race].clone()
         rows = torch.arange(len(race), device=self.device)
         plan[rows, agent] = 0  # the strategist's car has no plan: it decides
@@ -99,9 +102,10 @@ class StrategyEnv:
         last_chance = sim.lap == sim.total_laps - 1
         choice_is_new = (action > 0) & ~used.gather(1, (action - 1).clamp(min=0)[:, None])[:, 0]
         must_force = last_chance & (used.sum(dim=1) < 2) & ~choice_is_new
-        # Prefer medium, then hard, then soft among the unused compounds.
+        # Prefer medium, then hard, then soft among the unused (and allowed)
+        # compounds.
         preference = torch.tensor([1, 2, 0], device=self.device)
-        unused_first = (~used[:, preference]).float().argmax(dim=1)
+        unused_first = (~used & self.allowed)[:, preference].float().argmax(dim=1)
         forced = 1 + preference[unused_first]
         self.forced_stops += must_force.long()
         return torch.where(must_force, forced, action)

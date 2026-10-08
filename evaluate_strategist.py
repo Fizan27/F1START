@@ -29,7 +29,7 @@ import torch
 
 import simulator
 import strategy_search
-from simulator import SAFETY_CAR, VSC, LapModel, RaceSet
+from simulator import LapModel, RaceSet
 from strategy_env import StrategyEnv
 from strategy_search import RESULTS_FOLDER, describe, finishers, simulate_plans
 from train_agent import drive, load_strategist
@@ -49,6 +49,14 @@ def evaluate_race(env: StrategyEnv, strategist, race: int) -> list[dict]:
     group = torch.arange(SAMPLES, device=device).repeat(len(cars))
     driven = drive(env, strategist, index, agent, seed=SEED, group=group)
     shape = (len(cars), SAMPLES)
+    # Again, but only allowed the compounds each car's team really used.
+    allowed = torch.zeros(len(cars), 3, dtype=torch.bool, device=device)
+    for i, car in enumerate(cars):
+        allowed[i, list(strategy_search.team_compounds(info, car))] = True
+    same_tyres = drive(env, strategist, index, agent, seed=SEED, group=group,
+                       allowed=allowed.repeat_interleave(SAMPLES, dim=0))
+    same_positions = same_tyres["position"].reshape(shape)
+    same_times = same_tyres["time"].reshape(shape)
     positions = driven["position"].reshape(shape)
     times = driven["time"].reshape(shape)
     actions = driven["actions"].reshape(*shape, -1)[:, :, :info.total_laps].cpu().numpy()
@@ -69,6 +77,8 @@ def evaluate_race(env: StrategyEnv, strategist, race: int) -> list[dict]:
             "Year": info.year, "Round": info.round, "Driver": info.drivers[car],
             "AgentPosition": positions[i].mean().item(),
             "AgentSeconds": (real_times.mean() - times[i].mean()).item(),
+            "AgentSameTyresPosition": same_positions[i].mean().item(),
+            "AgentSameTyresSeconds": (real_times.mean() - same_times[i].mean()).item(),
             "AgentStops": float(stops.sum(axis=1).mean()),
             "AgentExample": describe(actions[i][0], int(info.start_compound[car])),
             "AgentForced": forced[i].mean().item(),
@@ -136,6 +146,10 @@ def comparison(table: pl.DataFrame, label: str = "") -> pl.DataFrame:
         row(f"{label}best fixed plan (before the race)", "FixedPosition", "FixedSeconds"),
         row(f"{label}best fixed plan (hindsight)", "HindsightPosition", "HindsightSeconds"),
         row(f"{label}AI strategist", "AgentPosition", "AgentSeconds"),
+        row(f"{label}best fixed plan, team's tyres only", "SameTyresPosition",
+            "SameTyresSeconds"),
+        row(f"{label}AI strategist, team's tyres only", "AgentSameTyresPosition",
+            "AgentSameTyresSeconds"),
     ])
 
 
@@ -177,12 +191,15 @@ def save_chart(table: pl.DataFrame, season: str, file: Path):
     import chart_style as style
 
     fair = strategy_search.fair_comparisons(table)
+    gain = lambda column: fair["RealPosition"] - fair[column]
     gains = {
-        "Best fixed plan\n(chosen before the race)": fair["RealPosition"] - fair["FixedPosition"],
-        "Best fixed plan\n(chosen with hindsight)": fair["RealPosition"] - fair["HindsightPosition"],
-        "AI strategist": fair["RealPosition"] - fair["AgentPosition"],
+        "Best fixed plan\n(team's tyres only)": gain("SameTyresPosition"),
+        "AI strategist\n(team's tyres only)": gain("AgentSameTyresPosition"),
+        "Best fixed plan\n(any tyres)": gain("FixedPosition"),
+        "AI strategist\n(any tyres)": gain("AgentPosition"),
     }
-    colours = [style.ORANGE, style.AQUA, style.BLUE]
+    # Colour follows who chose the strategy: orange brute force, blue the AI.
+    colours = [style.ORANGE, style.BLUE, style.ORANGE, style.BLUE]
     figure, (left, right) = style.new_figure(2, width=12, height=4.6, width_ratios=[1, 1.2])
     names = list(gains)
     means = [gain.mean() for gain in gains.values()]
@@ -195,13 +212,13 @@ def save_chart(table: pl.DataFrame, season: str, file: Path):
     left.set_xlabel("Average places gained over the real team's strategy")
     style.tidy(left, f"Places gained in simulation, {season}")
 
-    agent_gain = gains["AI strategist"].to_numpy()
+    agent_gain = gains["AI strategist\n(team's tyres only)"].to_numpy()
     right.hist(agent_gain, bins=np.arange(-4.25, 6.75, 0.5), color=style.BLUE,
                edgecolor=style.SURFACE, linewidth=1.5)
     right.axvline(0, color=style.BASELINE, linewidth=1)
     right.set_xlabel("Places gained by the AI strategist over the real team (per driver race)")
     right.set_ylabel("Driver races")
-    style.tidy(right, "Not every race is a gain: the spread of the AI strategist's result", "y")
+    style.tidy(right, "The spread behind the average: AI strategist, team's tyres only", "y")
     style.save(figure, file)
 
 

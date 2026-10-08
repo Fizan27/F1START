@@ -65,7 +65,8 @@ def make_plan(stops: list, max_laps: int) -> torch.Tensor:
 
 
 @st.cache_data(show_spinner="Simulating...")
-def simulate(year: int, race: int, car: int, stops: tuple, react: bool, real_events: bool):
+def simulate(year: int, race: int, car: int, stops: tuple, react: bool, real_events: bool,
+             any_tyres: bool):
     """Simulate the real strategy, the edited one and the AI strategist in
     the same random races. Returns finishing positions and race times."""
     race_set, lap_model, stats, strategist = load_season(year)
@@ -85,7 +86,14 @@ def simulate(year: int, race: int, car: int, stops: tuple, react: bool, real_eve
     index = torch.full((SIMULATIONS,), race, device=race_set.device)
     agent = torch.full((SIMULATIONS,), car, device=race_set.device)
     group = torch.arange(SIMULATIONS, device=race_set.device)
-    driven = drive(env, strategist, index, agent, seed=SEED, group=group)
+    # By default the AI may only fit compounds the team really used in this
+    # race: the simulator overrates soft tyres and does not know which sets a
+    # team had left, so "any tyres" flatters the AI.
+    allowed = torch.ones(SIMULATIONS, 3, dtype=torch.bool, device=race_set.device)
+    if not any_tyres:
+        allowed[:] = False
+        allowed[:, list(strategy_search.team_compounds(info, car))] = True
+    driven = drive(env, strategist, index, agent, seed=SEED, group=group, allowed=allowed)
     actions = driven["actions"][:, :info.total_laps].cpu().numpy()
     ai = (driven["position"].cpu().numpy(), driven["time"].cpu().numpy())
     return {"real": real, "yours": yours, "ai": ai, "ai_actions": actions,
@@ -234,17 +242,19 @@ def report_card(year: int):
     table = strategy_search.fair_comparisons(pl.read_parquet(file))
     card = table.group_by("Team").agg(
         pl.len().alias("Driver races"),
-        (pl.col("RealPosition") - pl.col("FixedPosition")).mean().round(2)
+        (pl.col("RealPosition") - pl.col("SameTyresPosition")).mean().round(2)
         .alias("Places a fixed plan would gain"),
-        (pl.col("RealPosition") - pl.col("AgentPosition")).mean().round(2)
+        (pl.col("RealPosition") - pl.col("AgentSameTyresPosition")).mean().round(2)
         .alias("Places the AI strategist would gain"),
-        pl.col("AgentSeconds").mean().round(1).alias("Seconds the AI strategist would gain"),
-    ).sort("Places the AI strategist would gain")
+        pl.col("AgentSameTyresSeconds").mean().round(1)
+        .alias("Seconds the AI strategist would gain"),
+    ).sort("Places a fixed plan would gain")
     st.write(
         "For every dry race, each driver's real strategy was simulated against the best"
-        " fixed plan found by brute force and against the AI strategist. **Smaller numbers"
-        " are better for the team**: they mean the simulator found little to improve."
-        " Teams are listed best first.")
+        " fixed plan found by brute force and against the AI strategist, both limited to"
+        " the tyre compounds that team really used. **Smaller numbers are better for the"
+        " team**: they mean the simulator found little to improve. Teams are listed best"
+        " first.")
     st.dataframe(card, hide_index=True, use_container_width=True)
     st.caption(
         "Read this with care. These are gains inside a simulator that has measured"
@@ -272,6 +282,11 @@ def main():
         "Driver", cars, format_func=lambda c: f"{info.drivers[c]} ({info.teams[c]})")
     conditions = st.sidebar.radio(
         "Safety cars", ["As they really happened", "Random, as before the race"])
+    any_tyres = st.sidebar.checkbox(
+        "Let the AI use any tyre compound", value=False,
+        help="Off: the AI may only fit compounds this team really used in this race."
+             " On: any compound, which flatters the AI because the simulator overrates"
+             " soft tyres.")
     st.sidebar.caption(
         f"Simulated on: {race_set.device}. Models for {year} were trained only on"
         f" seasons before {year}.")
@@ -280,7 +295,7 @@ def main():
     stops, react, legal = strategy_editor(info, car)
     if legal:
         results = simulate(year, race, car, stops, react,
-                           conditions == "As they really happened")
+                           conditions == "As they really happened", any_tyres)
         show_results(info, car, results, stops)
     st.divider()
     report_card(year)

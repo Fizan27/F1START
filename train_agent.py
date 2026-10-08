@@ -187,8 +187,11 @@ def load_strategist(file: Path = STRATEGIST_FILE, device: str = DEVICE) -> Strat
 
 @torch.no_grad()
 def drive(env: StrategyEnv, strategist: Strategist, race, agent, seed: int, group=None,
-          action_seed: int = 0) -> dict:
+          action_seed: int = 0, allowed=None) -> dict:
     """Let the trained strategist drive the given races to the finish.
+
+    `allowed` (B, 3) can limit which compounds it may fit: choices for other
+    compounds are removed before it picks.
 
     Its choices are sampled from the policy, as in training. Taking only its
     single most likely action each lap would not work: when it wants to stop
@@ -197,10 +200,11 @@ def drive(env: StrategyEnv, strategist: Strategist, race, agent, seed: int, grou
     Returns final positions and times (B,), and the action of every lap.
     """
     generator = torch.Generator(device=env.device).manual_seed(action_seed)
-    view, _ = env.reset(race, agent, seed=seed, group=group)
+    view, _ = env.reset(race, agent, seed=seed, group=group, allowed=allowed)
     actions = []
     for _ in range(env.set.max_laps):
         chances = strategist(view)[0].probs
+        chances[:, 1:] = chances[:, 1:] * env.allowed
         action = torch.multinomial(chances, 1, generator=generator)[:, 0]
         view, _, _, _, info = env.step(action)
         actions.append(info["action"])
