@@ -53,7 +53,7 @@ Weaknesses measured so far:
   worse than guessing the average (2.63s against 2.09s).
 - Wet and mixed races are predicted badly, as expected for a dry-only model:
   Montréal 2024 has a mean miss above 2s and Silverstone 2024 above 1.3s.
-  Among dry races Monaco is the worst, at about 1.3s.
+  Among dry races Monaco is the worst, at 1.2s.
 - The race pace level itself is hard to forecast before a race from earlier
   seasons. For the 20 races with a dry race and dry qualifying: median miss
   0.38s per lap, mean 0.65s. Including the other three: mean 1.29s, with Spa
