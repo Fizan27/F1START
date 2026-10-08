@@ -1,25 +1,23 @@
-# download_data.py
+# download_laps.py
 #
-# What it does: downloads every race of the chosen seasons with the FastF1
-#   library and saves the parts this project needs.
+# What it does: downloads the lap times of every race from 2018 onwards with
+#   the FastF1 library. (2018 is the first season FastF1 has lap data for.)
 # What it reads: the public F1 timing data, through FastF1 (internet needed).
 #   FastF1 keeps its own copy in data/fastf1_cache so nothing downloads twice.
-# What it produces, in data/raw/, three files per race (for example 2024_05):
-#     2024_05_laps.parquet     one row per driver per lap: lap time, sectors,
-#                              tyre compound and age, stint, pit times,
-#                              track status (safety car / VSC), position
-#     2024_05_weather.parquet  about one row per minute: air and track
-#                              temperature, rain, wind
+# What it produces, in data/raw/, two files per race (for example 2024_05):
+#     2024_05_laps.parquet     one row per driver per lap: lap time, tyre,
+#                              pit times, track status (safety car / VSC)
 #     2024_05_results.parquet  one row per driver: grid and finishing position
-#   plus one file for all races together:
-#     qualifying.parquet       one row per driver per race: best qualifying lap
-# Which files use it: clean_data.py reads data/raw/ (the next step).
+#   (Races downloaded for the earlier project also have a _weather file. It is
+#   not used any more, but downloaded data is never deleted.)
+# Which files use it: clean_laps.py reads data/raw/.
 #
-# Run:  .venv\Scripts\python.exe download_data.py
+# Run:  .venv\Scripts\python.exe download_laps.py
 # Safe to stop and run again: races already saved are skipped.
-# Expect about 3 hours for all four seasons: the data service allows 500
-# requests per hour, so the script pauses by itself when it reaches the limit.
+# Expect about 2 hours for the seasons not yet downloaded: FastF1 allows itself
+# 500 requests per hour, so the script pauses by itself when it reaches that.
 
+import datetime
 import logging
 import time
 from pathlib import Path
@@ -27,14 +25,12 @@ from pathlib import Path
 import fastf1
 import pandas as pd
 import polars as pl
-from fastf1.ergast import Ergast
 from fastf1.exceptions import RateLimitExceededError
 
-SEASONS = [2022, 2023, 2024, 2025]  # why these: see docs/DECISIONS.md, number 4
+FIRST_SEASON = 2018
 RATE_LIMIT_WAIT_MINUTES = 10
 RAW_FOLDER = Path("data/raw")
 CACHE_FOLDER = Path("data/fastf1_cache")
-QUALIFYING_FILE = RAW_FOLDER / "qualifying.parquet"
 
 RESULT_COLUMNS = [
     "DriverNumber", "Abbreviation", "TeamName", "GridPosition", "Position",
@@ -70,14 +66,14 @@ def already_saved(year: int, round_number: int) -> bool:
 
 
 def load_race(year: int, round_number: int):
-    """Download one race. Telemetry is skipped: it is huge and not needed."""
+    """Download one race. Telemetry and weather are skipped: not needed."""
     session = fastf1.get_session(year, round_number, "R")
-    session.load(laps=True, telemetry=False, weather=True, messages=False)
+    session.load(laps=True, telemetry=False, weather=False, messages=False)
     return session
 
 
 def save_race(session, year: int, round_number: int) -> int:
-    """Save the three tables for one race. Returns how many laps were saved."""
+    """Save the two tables for one race. Returns how many laps were saved."""
     stem = race_name(year, round_number)
     # Stamp every row with which race it belongs to, so the files can later
     # be stacked into one big table without losing track.
@@ -88,64 +84,24 @@ def save_race(session, year: int, round_number: int) -> int:
         pl.lit(session.event["Location"]).alias("Circuit"),
     ]
     laps = to_polars(session.laps).with_columns(labels)
-    weather = to_polars(session.weather_data).with_columns(labels)
     results = to_polars(session.results[RESULT_COLUMNS]).with_columns(labels)
 
     laps.write_parquet(RAW_FOLDER / f"{stem}_laps.parquet")
-    weather.write_parquet(RAW_FOLDER / f"{stem}_weather.parquet")
     results.write_parquet(RAW_FOLDER / f"{stem}_results.parquet")
     return laps.height
 
 
-def rounds_in_season(year: int) -> list[int]:
+def rounds_already_raced(year: int, today: datetime.date) -> list[int]:
+    """The round numbers of a season whose race day is in the past."""
     schedule = fastf1.get_event_schedule(year, include_testing=False)
-    return [int(number) for number in schedule["RoundNumber"]]
-
-
-def qualifying_for_season(year: int) -> pl.DataFrame:
-    """Each driver's best qualifying lap (seconds) for every race of a season.
-
-    Qualifying happens the day before the race, so these times are known
-    before lap 1. That makes them a safe yardstick for race pace: they cannot
-    leak anything about how the race itself went.
-    """
-    tables = []
-    page = Ergast().get_qualifying_results(season=year, limit=100)
-    while page is not None:
-        for (_, race), drivers in zip(page.description.iterrows(), page.content):
-            # A driver's best lap can come from any of the three parts (Q1,
-            # Q2, Q3); slower drivers are knocked out before the later parts.
-            parts = drivers.reindex(columns=["Q1", "Q2", "Q3"])
-            seconds = parts.apply(lambda part: pd.to_timedelta(part, errors="coerce").dt.total_seconds())
-            tables.append(pl.DataFrame({
-                "Year": year,
-                "Round": int(race["round"]),
-                "Driver": drivers["driverCode"].to_list(),
-                "BestQualiTime": seconds.min(axis=1).to_list(),
-            }, schema_overrides={"BestQualiTime": pl.Float64}))
-        try:
-            page = page.get_next_result_page()  # results arrive 100 rows at a time
-        except ValueError:
-            page = None  # no more pages
-    return pl.concat(tables)
-
-
-def save_qualifying():
-    """Save data/raw/qualifying.parquet for all seasons (skipped if present)."""
-    if QUALIFYING_FILE.exists():
-        print("qualifying  already saved, skipping")
-        return
-    seasons = [patiently(qualifying_for_season, year) for year in SEASONS]
-    qualifying = pl.concat(seasons)
-    qualifying.write_parquet(QUALIFYING_FILE)
-    print(f"qualifying  {qualifying.height} driver results saved")
+    raced = schedule[schedule["EventDate"].dt.date < today]
+    return [int(number) for number in raced["RoundNumber"]]
 
 
 def patiently(function, *arguments):
     """Call a download function; if the hourly limit is hit, wait and retry.
 
-    The data service allows 500 requests per hour (about 33 races). Waiting
-    is the polite fix: the limit exists to keep a free service usable.
+    Waiting is the polite fix: the limit exists to keep a free service usable.
     """
     while True:
         try:
@@ -161,14 +117,12 @@ def main():
     fastf1.Cache.enable_cache(str(CACHE_FOLDER))
     logging.getLogger("fastf1").setLevel(logging.ERROR)  # hide progress chatter
 
-    save_qualifying()
-
+    today = datetime.date.today()
     failed = []
-    for year in SEASONS:
-        for round_number in patiently(rounds_in_season, year):
+    for year in range(FIRST_SEASON, today.year + 1):
+        for round_number in patiently(rounds_already_raced, year, today):
             stem = race_name(year, round_number)
             if already_saved(year, round_number):
-                print(f"{stem}  already saved, skipping")
                 continue
             try:
                 session = patiently(load_race, year, round_number)

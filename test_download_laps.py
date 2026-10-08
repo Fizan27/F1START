@@ -1,6 +1,6 @@
-# test_download_data.py
+# test_download_laps.py
 #
-# What it does: checks the small helper functions in download_data.py, without
+# What it does: checks the small helper functions in download_laps.py, without
 #   touching the internet.
 # What it reads: nothing.
 # What it produces: pass/fail results when run with pytest.
@@ -9,7 +9,7 @@
 import pandas as pd
 import polars as pl
 
-from download_data import race_name, to_polars
+from download_laps import race_name, to_polars
 
 
 def test_durations_become_seconds():
