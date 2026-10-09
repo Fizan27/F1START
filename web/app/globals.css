@@ -1,0 +1,208 @@
+/* app/globals.css
+ *
+ * What it does: every style of the website, in one file. Colours and sizes
+ *   are named once at the top (the --variables) and used by name below, so
+ *   the look can be changed in one place.
+ * Which files use it: app/layout.tsx loads it for every page.
+ */
+
+:root {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232321;
+  --line: #2c2c2a;
+  --line-strong: #383835;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --accent: #e10600; /* the one brand colour: buttons and the active page */
+  --series-1: #3987e5; /* charts: the first driver, or the only series */
+  --series-2: #d95926; /* charts: the second driver */
+  --good: #0ca30c;
+  --bad: #e66767;
+  --radius: 12px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; }
+h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.1; margin: 0 0 8px; letter-spacing: -0.02em; }
+h2 { font-size: 18px; margin: 0 0 12px; }
+h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+p { margin: 0 0 12px; }
+.lead { color: var(--ink-2); max-width: 62ch; margin-bottom: 24px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- Page frame ---- */
+
+.nav {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 20px;
+  padding: 0 20px; height: 56px;
+  background: rgba(13, 13, 13, 0.88); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 800; letter-spacing: 0.02em; text-decoration: none; white-space: nowrap; }
+.brand span { color: var(--accent); }
+.nav-links { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-links a {
+  padding: 6px 12px; border-radius: 999px; text-decoration: none;
+  color: var(--ink-2); font-size: 14px; white-space: nowrap;
+}
+.nav-links a:hover { color: var(--ink); background: var(--surface-2); }
+.nav-links a.active { color: var(--ink); background: var(--accent); }
+
+main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
+footer { border-top: 1px solid var(--line); padding: 20px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---- Controls ---- */
+
+button, select, input {
+  font: inherit; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 8px; padding: 8px 12px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); font-weight: 700; padding: 10px 22px; }
+button.primary:hover { filter: brightness(1.12); }
+button.chip { border-radius: 999px; padding: 5px 12px; font-size: 13px; }
+button.chip.on { background: var(--ink); color: var(--page); border-color: var(--ink); }
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 1px; }
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+
+/* ---- Driver picker ---- */
+
+.picker { position: relative; }
+.picker input { width: 100%; }
+.picker-list {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30;
+  background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 8px;
+  max-height: 300px; overflow-y: auto; padding: 4px;
+}
+.picker-list button {
+  display: flex; justify-content: space-between; gap: 12px; width: 100%;
+  background: none; border: none; text-align: left; padding: 7px 10px;
+}
+.picker-list button:hover, .picker-list button.cursor { background: var(--line-strong); }
+
+/* ---- Race page ---- */
+
+.race-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.track-card { padding: 10px; position: relative; }
+.track-card svg { width: 100%; height: auto; display: block; max-height: 68vh; }
+.track-outline { fill: none; stroke: var(--line-strong); stroke-width: 26; stroke-linejoin: round; stroke-linecap: round; }
+.track-centre { fill: none; stroke: #55544f; stroke-width: 2; stroke-dasharray: 2 14; stroke-linecap: round; }
+.car text { font-size: 17px; font-weight: 800; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.race-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.lap-counter { font-size: 22px; font-weight: 800; }
+
+.tower { position: relative; }
+.tower-row {
+  position: absolute; left: 0; right: 0; height: 30px;
+  display: grid; grid-template-columns: 26px 30px 1fr auto; gap: 8px; align-items: center;
+  padding: 0 8px; border-radius: 6px;
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.3s;
+}
+.tower-row:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
+.tower-row.out { opacity: 0.45; }
+.tower-row.gained { background: rgba(12, 163, 12, 0.22); }
+.tower-row.lost { background: rgba(230, 103, 103, 0.18); }
+.tower-pos { color: var(--muted); text-align: right; }
+.badge {
+  width: 28px; height: 20px; border-radius: 5px; font-size: 12px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+.tower-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.tower-gap { color: var(--ink-2); font-size: 13.5px; }
+
+.grid-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+.grid-slot {
+  display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; align-items: center;
+  background: var(--surface-2); border-radius: 8px; padding: 6px 8px; font-size: 14px;
+}
+.grid-slot button { padding: 0 7px; border: none; background: none; color: var(--muted); font-size: 16px; }
+.grid-slot button:hover { color: var(--ink); }
+
+.results td:last-child, .results th:last-child { text-align: right; }
+.delta-up { color: var(--good); }
+.delta-down { color: var(--bad); }
+
+/* ---- Tables ---- */
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--surface-2); }
+td.right, th.right { text-align: right; }
+.table-scroll { overflow-x: auto; }
+
+/* ---- Charts ---- */
+
+.interval { display: block; width: 100%; height: 22px; min-width: 160px; }
+.axis-text { fill: var(--muted); font-size: 11px; }
+.chart-wrap { position: relative; }
+.tooltip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 6px 10px; font-size: 13px; white-space: nowrap; transform: translate(-50%, -110%);
+}
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin-top: 8px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+.versus { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; text-align: center; }
+.versus .pct { font-size: clamp(40px, 9vw, 72px); font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
+.split-bar { display: flex; height: 14px; gap: 2px; margin: 18px 0 6px; }
+.split-bar div { height: 100%; }
+.split-bar div:first-child { background: var(--series-1); border-radius: 4px 0 0 4px; }
+.split-bar div:last-child { background: var(--series-2); border-radius: 0 4px 4px 0; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.stat { background: var(--surface-2); border-radius: 10px; padding: 12px; }
+.stat b { display: block; font-size: 24px; line-height: 1.2; }
+.stat span { font-size: 12px; color: var(--muted); }
+
+.mini-bar { display: flex; height: 8px; gap: 2px; min-width: 90px; }
+.mini-bar div:first-child { background: var(--series-1); border-radius: 3px 0 0 3px; }
+.mini-bar div:last-child { background: var(--line-strong); border-radius: 0 3px 3px 0; }
+
+.prose { max-width: 70ch; }
+.prose h2 { margin-top: 28px; }
+.prose li { margin-bottom: 6px; }
+.note { border-left: 3px solid var(--accent); padding: 8px 14px; background: var(--surface); border-radius: 0 8px 8px 0; color: var(--ink-2); }
+
+/* ---- Phones ---- */
+
+@media (max-width: 860px) {
+  .race-layout, .grid-2 { grid-template-columns: 1fr; }
+  main { padding: 20px 14px 60px; }
+  .nav { padding: 0 12px; gap: 10px; }
+  .hide-phone { display: none; }
+  .track-card svg { max-height: 46vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tower-row { transition: none; }
+}

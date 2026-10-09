@@ -31,7 +31,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # Every number the simulation uses, in one place. Percentages are of a lap.
 # Which are measured and which are assumptions: DECISIONS.md 22.
 SETTINGS = {
-    "formSd": 0.32,  # how much a driver's pace varies from one race to the next (%)
+    "formSd": 0.33,  # how much a driver's pace varies from one race to the next (%)
     "qualiNoise": 0.20,  # extra randomness of the single qualifying lap (%)
     "lapNoise": 0.25,  # lap to lap variation of a typical driver (%)
     "mistakeChance": 0.02,  # chance per lap that a typical driver makes a mistake
@@ -39,8 +39,8 @@ SETTINGS = {
     "crashChance": 0.05,  # chance per race that a typical driver crashes out
     "gridGapSeconds": 0.25,  # gap between grid slots as the race starts
     "followGapSeconds": 0.4,  # how close a car stuck behind another can follow
-    "passMarginEasy": 0.2,  # lap time advantage (s) needed to pass at the easiest circuit
-    "passMarginHard": 1.6,  # ... and at the hardest (Monaco)
+    "passMarginEasy": 0.1,  # lap time advantage (s) needed to pass at the easiest circuit
+    "passMarginHard": 1.2,  # ... and at the hardest (Monaco)
 }
 
 RETIRED = 1e7  # added to a crashed car's race time, so it sorts behind every finisher
@@ -61,7 +61,7 @@ def pass_margin(difficulty: float) -> float:
     return SETTINGS["passMarginEasy"] + difficulty * (SETTINGS["passMarginHard"] - SETTINGS["passMarginEasy"])
 
 
-def hold_up(race_time, lap_time, margin):
+def hold_up(race_time, lap_time, margin, luck=None):
     """Add this lap to every car's race time, keeping slower cars in front where they belong.
 
     Cars are taken in the order they started the lap. A car that would end
@@ -70,16 +70,23 @@ def hold_up(race_time, lap_time, margin):
     stuck just behind. Because the car in front may itself have been held up,
     this has to be done front to back, one position at a time: that is the
     only loop over cars, and each step still handles every simulated race at once.
+
+    `luck` (random numbers between 0 and 1, same shape as race_time) varies
+    how closely a stuck car follows: between one and two following gaps.
+    Without it every queue of cars would be spaced exactly 0.4s apart.
     """
     order = race_time.argsort(dim=1)  # car numbers, leader first, per simulated race
     lap = lap_time.gather(1, order)
     finish = race_time.gather(1, order) + lap
+    if luck is None:
+        luck = torch.zeros_like(race_time)
+    follow = SETTINGS["followGapSeconds"] * (1 + luck)
     for place in range(1, order.shape[1]):
         ahead = finish[:, place - 1]
         would_pass = finish[:, place] < ahead + SETTINGS["followGapSeconds"]
         fast_enough = (lap[:, place - 1] - lap[:, place]) > margin
         stuck = would_pass & ~fast_enough
-        finish[:, place] = torch.where(stuck, ahead + SETTINGS["followGapSeconds"], finish[:, place])
+        finish[:, place] = torch.where(stuck, ahead + follow[:, place], finish[:, place])
     return torch.empty_like(race_time).scatter_(1, order, finish)  # back to car number order
 
 
@@ -118,7 +125,7 @@ def simulate_races(skill, errors, lap_seconds, laps, margin, generator=None):
         made_mistake = chance(*shape) < SETTINGS["mistakeChance"] * errors
         # An exponential spread: most mistakes are small, a few are big.
         mistake = made_mistake * -torch.log(chance(*shape)) * SETTINGS["mistakeSeconds"]
-        race_time = hold_up(race_time, pace + noise + mistake, margin)
+        race_time = hold_up(race_time, pace + noise + mistake, margin, chance(*shape))
         crashes_now = (chance(*shape) < crash_chance_per_lap) & ~crashed
         # A crashed car goes to the back. Crashing later still beats crashing earlier.
         race_time = race_time + crashes_now * (RETIRED - lap * 1000.0)

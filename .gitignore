@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 
 # Downloaded data: large, and anyone can rebuild it with the download scripts.
-data/
+/data/
 
 # Website build output and installed packages: rebuilt by npm.
 web/node_modules/
@@ -18,3 +18,7 @@ web/out/
 # Secrets must never be committed to this public repo.
 .env
 *.key
+
+# Files Next.js generates by itself.
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo

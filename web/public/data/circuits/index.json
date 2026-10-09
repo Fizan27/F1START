@@ -1,0 +1,266 @@
+[
+ {
+  "id": "albert_park",
+  "name": "Albert Park Grand Prix Circuit",
+  "country": "Australia",
+  "year": 2026,
+  "raceLaps": 58,
+  "lapSeconds": 82.091
+ },
+ {
+  "id": "americas",
+  "name": "Circuit of the Americas",
+  "country": "USA",
+  "year": 2025,
+  "raceLaps": 56,
+  "lapSeconds": 97.577
+ },
+ {
+  "id": "bahrain",
+  "name": "Bahrain International Circuit",
+  "country": "Bahrain",
+  "year": 2025,
+  "raceLaps": 57,
+  "lapSeconds": 95.14
+ },
+ {
+  "id": "baku",
+  "name": "Baku City Circuit",
+  "country": "Azerbaijan",
+  "year": 2026,
+  "raceLaps": 51,
+  "lapSeconds": 104.916
+ },
+ {
+  "id": "catalunya",
+  "name": "Circuit de Barcelona-Catalunya",
+  "country": "Spain",
+  "year": 2026,
+  "raceLaps": 66,
+  "lapSeconds": 80.122
+ },
+ {
+  "id": "hockenheimring",
+  "name": "Hockenheimring",
+  "country": "Germany",
+  "year": 2019,
+  "raceLaps": 64,
+  "lapSeconds": 76.645
+ },
+ {
+  "id": "hungaroring",
+  "name": "Hungaroring",
+  "country": "Hungary",
+  "year": 2025,
+  "raceLaps": 70,
+  "lapSeconds": 79.409
+ },
+ {
+  "id": "imola",
+  "name": "Autodromo Enzo e Dino Ferrari",
+  "country": "Italy",
+  "year": 2025,
+  "raceLaps": 63,
+  "lapSeconds": 77.988
+ },
+ {
+  "id": "interlagos",
+  "name": "Aut\u00f3dromo Jos\u00e9 Carlos Pace",
+  "country": "Brazil",
+  "year": 2025,
+  "raceLaps": 71,
+  "lapSeconds": 72.4
+ },
+ {
+  "id": "istanbul",
+  "name": "Istanbul Park",
+  "country": "Turkey",
+  "year": 2021,
+  "raceLaps": 58,
+  "lapSeconds": 90.432
+ },
+ {
+  "id": "jeddah",
+  "name": "Jeddah Corniche Circuit",
+  "country": "Saudi Arabia",
+  "year": 2025,
+  "raceLaps": 50,
+  "lapSeconds": 91.778
+ },
+ {
+  "id": "losail",
+  "name": "Lusail International Circuit",
+  "country": "Qatar",
+  "year": 2025,
+  "raceLaps": 57,
+  "lapSeconds": 82.996
+ },
+ {
+  "id": "madring",
+  "name": "Madring",
+  "country": "Spain",
+  "year": 2026,
+  "raceLaps": 57,
+  "lapSeconds": 95.587
+ },
+ {
+  "id": "marina_bay",
+  "name": "Marina Bay Street Circuit",
+  "country": "Singapore",
+  "year": 2025,
+  "raceLaps": 62,
+  "lapSeconds": 93.808
+ },
+ {
+  "id": "miami",
+  "name": "Miami International Autodrome",
+  "country": "USA",
+  "year": 2026,
+  "raceLaps": 57,
+  "lapSeconds": 91.869
+ },
+ {
+  "id": "monaco",
+  "name": "Circuit de Monaco",
+  "country": "Monaco",
+  "year": 2025,
+  "raceLaps": 78,
+  "lapSeconds": 73.221
+ },
+ {
+  "id": "monza",
+  "name": "Autodromo Nazionale di Monza",
+  "country": "Italy",
+  "year": 2026,
+  "raceLaps": 53,
+  "lapSeconds": 83.504
+ },
+ {
+  "id": "mugello",
+  "name": "Autodromo Internazionale del Mugello",
+  "country": "Italy",
+  "year": 2020,
+  "raceLaps": 59,
+  "lapSeconds": 78.833
+ },
+ {
+  "id": "nurburgring",
+  "name": "N\u00fcrburgring",
+  "country": "Germany",
+  "year": 2020,
+  "raceLaps": 60,
+  "lapSeconds": 88.139
+ },
+ {
+  "id": "portimao",
+  "name": "Aut\u00f3dromo Internacional do Algarve",
+  "country": "Portugal",
+  "year": 2021,
+  "raceLaps": 66,
+  "lapSeconds": 79.865
+ },
+ {
+  "id": "red_bull_ring",
+  "name": "Red Bull Ring",
+  "country": "Austria",
+  "year": 2026,
+  "raceLaps": 71,
+  "lapSeconds": 70.374
+ },
+ {
+  "id": "ricard",
+  "name": "Circuit Paul Ricard",
+  "country": "France",
+  "year": 2022,
+  "raceLaps": 53,
+  "lapSeconds": 95.781
+ },
+ {
+  "id": "rodriguez",
+  "name": "Aut\u00f3dromo Hermanos Rodr\u00edguez",
+  "country": "Mexico",
+  "year": 2025,
+  "raceLaps": 71,
+  "lapSeconds": 80.052
+ },
+ {
+  "id": "sepang",
+  "name": "Sepang International Circuit",
+  "country": "Malaysia",
+  "year": 2026,
+  "raceLaps": 55,
+  "lapSeconds": 98.22
+ },
+ {
+  "id": "shanghai",
+  "name": "Shanghai International Circuit",
+  "country": "China",
+  "year": 2026,
+  "raceLaps": 56,
+  "lapSeconds": 95.275
+ },
+ {
+  "id": "silverstone",
+  "name": "Silverstone Circuit",
+  "country": "UK",
+  "year": 2026,
+  "raceLaps": 52,
+  "lapSeconds": 91.777
+ },
+ {
+  "id": "sochi",
+  "name": "Sochi Autodrom",
+  "country": "Russia",
+  "year": 2021,
+  "raceLaps": 53,
+  "lapSeconds": 97.423
+ },
+ {
+  "id": "spa",
+  "name": "Circuit de Spa-Francorchamps",
+  "country": "Belgium",
+  "year": 2026,
+  "raceLaps": 44,
+  "lapSeconds": 108.89
+ },
+ {
+  "id": "suzuka",
+  "name": "Suzuka Circuit",
+  "country": "Japan",
+  "year": 2026,
+  "raceLaps": 53,
+  "lapSeconds": 92.432
+ },
+ {
+  "id": "vegas",
+  "name": "Las Vegas Strip Street Circuit",
+  "country": "USA",
+  "year": 2025,
+  "raceLaps": 50,
+  "lapSeconds": 93.365
+ },
+ {
+  "id": "villeneuve",
+  "name": "Circuit Gilles Villeneuve",
+  "country": "Canada",
+  "year": 2026,
+  "raceLaps": 68,
+  "lapSeconds": 74.21
+ },
+ {
+  "id": "yas_marina",
+  "name": "Yas Marina Circuit",
+  "country": "UAE",
+  "year": 2025,
+  "raceLaps": 58,
+  "lapSeconds": 86.725
+ },
+ {
+  "id": "zandvoort",
+  "name": "Circuit Park Zandvoort",
+  "country": "Netherlands",
+  "year": 2026,
+  "raceLaps": 72,
+  "lapSeconds": 74.23
+ }
+]

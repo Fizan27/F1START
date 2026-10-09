@@ -402,8 +402,8 @@ exported to the website so the browser runs exactly the same race.
 
 | Setting | Value | Where it comes from |
 |---|---|---|
-| Day to day form | 0.32% | **Calibrated** so simulated drivers beat each other as often as the validated model says (table below) |
-| Passing margin per circuit | 0.2s to 1.6s | The ORDER of circuits is **measured** (number 23); the two end values are assumed |
+| Day to day form | 0.33% | **Calibrated** so simulated drivers beat each other as often as the validated model says (table below) |
+| Passing margin per circuit | 0.1s to 1.2s | The ORDER of circuits is **measured** (number 23); the two end values are assumed |
 | Lap to lap noise | 0.25% | Assumed. Real laps scatter by about 0.5%, but much of that is tyres and traffic |
 | Mistakes | 2% of laps, 1.5s average | Assumed |
 | Crash chance | 5% per race | Close to the measured rate (driver caused retirements are 3% to 17% of starts depending on the decade) |
@@ -416,11 +416,11 @@ The calibration check (`simulate.py`, 20,000 races per row, 20 car field):
 
 | Skill gap | Model says the better driver finishes ahead | Simulation |
 |---|---|---|
-| 0.1% | 57.2% | 57.7% |
-| 0.2% | 64.1% | 64.8% |
-| 0.4% | 76.2% | 77.1% |
-| 0.6% | 85.1% | 86.0% |
-| 1.0% | 94.8% | 93.7% |
+| 0.1% | 57.2% | 57.0% |
+| 0.2% | 64.1% | 64.1% |
+| 0.4% | 76.2% | 76.2% |
+| 0.6% | 85.1% | 85.4% |
+| 1.0% | 94.8% | 93.3% |
 
 So the simulation is as predictable as real racing between teammates, no more
 and no less. What it leaves out: tyres, pit stops, safety cars, weather and
@@ -461,3 +461,40 @@ Head to heads use the model's curve directly and not a fresh race simulation
 per pair, because the simulation is calibrated to that same curve (number
 22) and 22,578 separate simulations would add noise without adding
 information.
+
+## 25. The website: static Next.js, the race runs in the browser
+
+- **Static export** (`output: "export"`): the build is plain HTML, CSS and
+  JavaScript. There is no server and no database, so hosting on Vercel's free
+  tier costs nothing and cannot break under load. Every page fetches small
+  JSON files from `web/public/data/`, all written by the Python scripts.
+- **The race is simulated in the visitor's browser** by `web/lib/sim.ts`, a
+  rewrite of `simulate.py` for one race at a time. The settings are not
+  copied by hand: they are read from `settings.json`, which `export_web.py`
+  writes from `simulate.SETTINGS`. So the two versions cannot drift apart on
+  numbers, only on logic, and the logic is short enough to compare by eye.
+- **The whole race is computed the moment "Start" is pressed**, then the
+  animation plays it back. That keeps the animation code simple (it only
+  asks "where is each car at time t?") and makes replay exact.
+- Each fantasy race draws a plausible value for every driver's rating from
+  its uncertainty, as well as a form for the day. A driver with a wide range
+  is therefore less predictable on the site, which is the honest behaviour.
+- **Plain CSS in one file, no UI or chart library.** Charts are small
+  hand-written SVG. Fewer dependencies to explain and nothing to pay for.
+- Twenty cars are told apart by eight colours used three ways (solid, white
+  ring, hollow) and, always, by the car number on the dot and in the timing
+  tower, so colour is never the only clue.
+- A sixth page, Seasons, was added beyond the five in the brief, because the
+  equal car championships were already computed and are one of the more
+  interesting outputs.
+- No images, logos or team colours are used anywhere.
+
+Checked by driving the built site in a headless browser at desktop and phone
+sizes: a full race, replay, and every page, with no horizontal scrolling on a
+390 pixel wide screen.
+
+One thing changed after watching the first race: with the first passing
+margins (0.2s to 1.6s) the field finished in grid order with every gap exactly
+0.4s. The margins were lowered to 0.1s to 1.2s, a stuck car now follows between
+one and two following gaps behind, and the form setting was recalibrated
+(0.32% to 0.33%) so the simulation still matches the model (number 22).

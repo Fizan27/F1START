@@ -1,0 +1,153 @@
+{
+ "trainedUntil": 2023,
+ "testYears": [
+  2024,
+  2025
+ ],
+ "teammates": {
+  "2024 race": {
+   "comparisons": 191,
+   "model": 0.6544502617801047,
+   "model_log_loss": 0.5924530661806022,
+   "career_points": 0.6596858638743456,
+   "last_season_or_points": 0.6596858638743456,
+   "same_pair_comparisons": 185,
+   "same_pair_last_season": 0.6594594594594595,
+   "same_pair_model": 0.654054054054054
+  },
+  "2024 qualifying": {
+   "comparisons": 236,
+   "model": 0.6864406779661016,
+   "model_log_loss": 0.5546279846860774,
+   "career_points": 0.6864406779661016,
+   "last_season_or_points": 0.6864406779661016,
+   "same_pair_comparisons": 224,
+   "same_pair_last_season": 0.6875,
+   "same_pair_model": 0.6875
+  },
+  "2025 race": {
+   "comparisons": 185,
+   "model": 0.6864864864864865,
+   "model_log_loss": 0.5954865718747092,
+   "career_points": 0.5783783783783784,
+   "last_season_or_points": 0.5783783783783784,
+   "same_pair_comparisons": 38,
+   "same_pair_last_season": 0.7105263157894737,
+   "same_pair_model": 0.7105263157894737
+  },
+  "2025 qualifying": {
+   "comparisons": 236,
+   "model": 0.7161016949152542,
+   "model_log_loss": 0.5692848917088562,
+   "career_points": 0.614406779661017,
+   "last_season_or_points": 0.614406779661017,
+   "same_pair_comparisons": 53,
+   "same_pair_last_season": 0.7735849056603774,
+   "same_pair_model": 0.7735849056603774
+  },
+  "both race": {
+   "comparisons": 376,
+   "model": 0.6702127659574468,
+   "model_log_loss": 0.5939456155247775,
+   "career_points": 0.6196808510638298,
+   "last_season_or_points": 0.6196808510638298,
+   "same_pair_comparisons": 223,
+   "same_pair_last_season": 0.6681614349775785,
+   "same_pair_model": 0.6636771300448431
+  },
+  "both qualifying": {
+   "comparisons": 472,
+   "model": 0.701271186440678,
+   "model_log_loss": 0.5619564381974665,
+   "career_points": 0.6504237288135594,
+   "last_season_or_points": 0.6504237288135594,
+   "same_pair_comparisons": 277,
+   "same_pair_last_season": 0.703971119133574,
+   "same_pair_model": 0.703971119133574
+  }
+ },
+ "calibration": {
+  "race": [
+   {
+    "model_said": "50-60%",
+    "comparisons": 145,
+    "average_said_%": 55.0,
+    "favourite_won_%": 55.2
+   },
+   {
+    "model_said": "60-70%",
+    "comparisons": 119,
+    "average_said_%": 66.3,
+    "favourite_won_%": 61.3
+   },
+   {
+    "model_said": "70-80%",
+    "comparisons": 73,
+    "average_said_%": 74.1,
+    "favourite_won_%": 82.2
+   },
+   {
+    "model_said": "80%+",
+    "comparisons": 39,
+    "average_said_%": 81.6,
+    "favourite_won_%": 100.0
+   }
+  ],
+  "qualifying": [
+   {
+    "model_said": "50-60%",
+    "comparisons": 180,
+    "average_said_%": 56.2,
+    "favourite_won_%": 58.9
+   },
+   {
+    "model_said": "60-70%",
+    "comparisons": 97,
+    "average_said_%": 68.4,
+    "favourite_won_%": 52.6
+   },
+   {
+    "model_said": "70-80%",
+    "comparisons": 109,
+    "average_said_%": 74.6,
+    "favourite_won_%": 86.2
+   },
+   {
+    "model_said": "80%+",
+    "comparisons": 86,
+    "average_said_%": 84.4,
+    "favourite_won_%": 93.0
+   }
+  ]
+ },
+ "positions": {
+  "2024": {
+   "Model (car + driver)": {
+    "average_miss_places": 3.152941176470588,
+    "rank_correlation": 0.6705453892083147
+   },
+   "Car only": {
+    "average_miss_places": 3.48,
+    "rank_correlation": 0.6265280133201182
+   },
+   "Last season's standings": {
+    "average_miss_places": 3.3411764705882354,
+    "rank_correlation": 0.6490727384364882
+   }
+  },
+  "2025": {
+   "Model (car + driver)": {
+    "average_miss_places": 4.405727923627685,
+    "rank_correlation": 0.41140024835845274
+   },
+   "Car only": {
+    "average_miss_places": 4.637231503579952,
+    "rank_correlation": 0.3546645411863328
+   },
+   "Last season's standings": {
+    "average_miss_places": 3.6062052505966586,
+    "rank_correlation": 0.5383178879997489
+   }
+  }
+ }
+}
