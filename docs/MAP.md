@@ -88,7 +88,29 @@ How the files connect, and the order things run in. Updated after every step.
                                      circuit's overtaking difficulty
 
 
- Phase 4: the website      (not started)   will read web/public/data/
+ Phase 4: the website (everything in web/)
+ -----------------------------------------
+
+ web/public/data/*.json    written by the Python scripts above
+        |
+        v
+ lib/data.ts               loads the JSON files and describes their shape
+        |
+        +--> app/page.tsx                the fantasy race (home page)
+        |        uses lib/sim.ts         one race, simulated in the browser:
+        |                                the same rules and settings as simulate.py
+        +--> app/head-to-head/page.tsx   any two drivers, chance and range
+        +--> app/ranking/page.tsx        all time ranking with range bars
+        +--> app/drivers/page.tsx        driver card: career curve, teammates
+        +--> app/seasons/page.tsx        every season replayed in equal cars
+        +--> app/about/page.tsx          method, validation results, limits
+
+ app/layout.tsx            the frame round every page (uses components/Nav.tsx)
+ app/globals.css           every style, in one file
+ components/DriverPicker.tsx   the driver search box used on three pages
+
+ To see it:   cd web ; npm install ; npm run dev   then open localhost:3000
+ To build it: cd web ; npm run build               the static site lands in web/out
 ```
 
 Run the five numbered scripts in that order. Each can be stopped and run
@@ -135,6 +157,8 @@ Drivers are named by `DriverId` (for example `hamilton`) and teams by `TeamId`
 | `pytest.ini` | Tells pytest which folders to skip | | |
 | `CLAUDE.md` | The rules for how this project is built | | |
 | `docs/DECISIONS.md` | Each significant decision and why | | |
+| `docs/INTERVIEW_GUIDE.md` | How to explain the project, and likely questions | | |
+| `web/` | The website (see the diagram above) | `web/public/data/` | `web/out/` when built |
 
 ## Folders
 

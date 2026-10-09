@@ -8,15 +8,29 @@ comparisons (teammates share the same car), linked across eras through shared
 teammates. It then simulates races where every car is identical, and a website
 lets you race drivers from any era against each other.
 
-**Status: in progress.** The data and the model are done and validated. The
-simulation and the website are next.
+**Live site:** not deployed yet (the link goes here once the repository is
+connected to Vercel).
+
+![The fantasy race page](docs/screenshots/race.png)
+
+| | |
+|---|---|
+| ![Ranking](docs/screenshots/ranking.png) | ![Driver card](docs/screenshots/driver.png) |
+
+**In one paragraph:** a Bayesian hierarchical model, written in PyTorch and
+fitted on the GPU, estimates a skill for every driver in every season since
+1950, with uncertainty. Fitted on results up to 2023 and tested on 2024 and
+2025 without refitting, it calls the right teammate in 67.0% of 376 race
+comparisons, against 62.0% for the best simple baseline (though in 2024 alone
+it only matched the baseline). A GPU simulation then races everyone in
+identical cars, and a static website lets you do the same in your browser.
 
 | Phase | What | Status |
 |---|---|---|
 | 1 | Data: results since 1950, lap times since 2018, circuit outlines | done |
 | 2 | The model: driver skill separated from car performance, validated on 2024 and 2025 | done |
 | 3 | The simulation: equal car races on the GPU | done |
-| 4 | The website (Next.js, free on Vercel) | not started |
+| 4 | The website (Next.js, free on Vercel) | built, waiting to be deployed |
 
 ## Data
 
@@ -171,6 +185,58 @@ that baseline has seen 2024.
   everyone slightly and long careers most.
 - The uncertainty ranges are somewhat too narrow by construction (see
   DECISIONS.md, number 15).
+
+## What the model says
+
+The top ten by peak skill among drivers with at least 50 starts, printed by
+`fit_ratings.py`. Skill is percent of lap time quicker than an average
+newcomer of today in the same car. "Could rank" is the middle 90% of 4,000
+plausible versions of the ratings, among all 655 rated drivers.
+
+| # | Driver | Peak | Skill | 90% range | Could rank |
+|---|---|---|---|---|---|
+| 1 | Michael Schumacher | 1994 to 1996 | +1.41% | +1.10 to +1.72 | 1 to 2 |
+| 2 | Juan Manuel Fangio | 1956 to 1958 | +0.94% | +0.50 to +1.38 | 2 to 37 |
+| 3 | Ayrton Senna | 1991 to 1993 | +0.92% | +0.59 to +1.25 | 2 to 27 |
+| 4 | Jackie Stewart | 1970 to 1972 | +0.92% | +0.53 to +1.31 | 2 to 32 |
+| 5 | Jim Clark | 1966 to 1968 | +0.91% | +0.48 to +1.35 | 2 to 40 |
+| 6 | Jochen Rindt | 1968 to 1970 | +0.90% | +0.50 to +1.29 | 2 to 35 |
+| 7 | Max Verstappen | 2023 to 2025 | +0.88% | +0.63 to +1.13 | 2 to 44 |
+| 8 | Fernando Alonso | 2010 to 2012 | +0.82% | +0.53 to +1.10 | 2 to 54 |
+| 9 | Heinz-Harald Frentzen | 1994 to 1996 | +0.82% | +0.52 to +1.11 | 3 to 42 |
+| 10 | Stirling Moss | 1959 to 1961 | +0.78% | +0.38 to +1.18 | 3 to 61 |
+
+Read the last column before the first. Apart from Schumacher, the model
+cannot honestly separate these drivers: places 2 to 10 are within 0.16% of
+each other, and each range is several times wider than that. Lewis Hamilton
+is 18th on this list (+0.65%), which will surprise many people; his range
+(+0.34 to +0.96) overlaps everyone from 2nd down.
+
+## The simulation and the website
+
+- `simulate.py` races identical cars lap by lap on the GPU: 20,000 races of
+  60 laps with 20 cars in under a second. Its randomness is calibrated so
+  that drivers beat each other as often as the validated model says (for a
+  0.4% skill gap: model 76.2%, simulation 76.2%).
+- Overtaking difficulty per circuit is measured from real races since 2018.
+  Monaco comes out hardest and Las Vegas easiest.
+- The website (`web/`) is a static Next.js site with six pages: a fantasy
+  race with an animated track and live timing, head to head, the all time
+  ranking, driver cards, every season replayed in equal cars, and an about
+  page with these validation results. The race runs in your browser using
+  the same settings as the GPU version.
+
+To run the website on your own machine:
+
+```
+cd web
+npm install
+npm run dev        # then open http://localhost:3000
+```
+
+What the simulation leaves out: tyres, pit stops, safety cars, weather and
+the start. It is a way to play with the ratings, not a prediction of real
+races.
 
 ## The earlier project
 
