@@ -47,9 +47,30 @@ How the files connect, and the order things run in. Updated after every step.
  who was ahead in the race and in qualifying
 
 
- Phase 2: the model        (not started)   will read results.parquet,
-                                           teammate_pairs.parquet and
-                                           race_pace.parquet
+ Phase 2: the model
+ ------------------
+
+ teammate_pairs.parquet + race_pace.parquet
+        |
+        v
+ model.py                  the model itself: skills per driver per season,
+        |                  with uncertainty. Used by the two scripts below.
+        |
+        +--> 6. validate_model.py   fit up to 2023, predict 2024 and 2025,
+        |          |                compare with baselines
+        |          v
+        |    docs/validation.png, web/public/data/validation.json
+        |
+        +--> 7. fit_ratings.py      fit on everything, for the final ratings
+                   |
+                   v
+             data/ratings.parquet            one row per driver
+             data/skill_by_season.parquet    the career curves
+             data/teammate_records.parquet   record against each teammate
+             data/car_strengths.parquet      each team's car, each season
+             data/peak_covariance.pt         uncertainty of the ratings
+
+
  Phase 3: the simulation   (not started)
  Phase 4: the website      (not started)   will read web/public/data/
 ```
@@ -87,6 +108,9 @@ Drivers are named by `DriverId` (for example `hamilton`) and teams by `TeamId`
 | `download_laps.py` | Downloads race lap times since 2018 | FastF1 (internet) | `data/raw/` |
 | `clean_laps.py` | Pace and consistency per driver per race | `data/raw/`, `data/results.parquet` | `data/race_pace.parquet` |
 | `download_circuits.py` | Track outlines for the website | `data/results.parquet`, FastF1 | `web/public/data/circuits/` |
+| `model.py` | The skill model (fit, uncertainty, predictions) | the pair and pace tables | nothing (used by others) |
+| `validate_model.py` | Tests the model on 2024 and 2025 | via `model.py`, `data/results.parquet` | `docs/validation.png`, `web/public/data/validation.json` |
+| `fit_ratings.py` | Final ratings from all data | via `model.py`, `data/results.parquet` | five files in `data/` |
 | `chart_style.py` | Shared chart colours | nothing | nothing |
 | `test_*.py` | Tests, one file per script | nothing | pass/fail |
 | `requirements.txt` | Python libraries | | |

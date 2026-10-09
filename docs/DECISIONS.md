@@ -236,3 +236,158 @@ matched a driver in the results history.
 - A typical driver's laps scatter by about 0.5% (roughly 0.45 seconds) around
   their own median. That number is larger than pure driver inconsistency,
   because tyre wear and traffic are still in it (decision 12).
+
+## 15. The model: skills fitted to teammate comparisons, uncertainty from the curvature
+
+The choice was between three kinds of model.
+
+- **Elo style ratings** (update after each race): simple, but gives no real
+  uncertainty and cannot go back and revise 1985 in the light of 1990.
+- **Full Bayesian sampling (MCMC)**: the gold standard for uncertainty, but a
+  black box library, slow, and hard to explain line by line.
+- **Chosen: a Bayesian hierarchical model fitted by optimisation, with the
+  uncertainty from a Laplace approximation.** All in about 150 lines of
+  PyTorch in `model.py`, and every line can be explained.
+
+How it works:
+
+1. Every driver gets one unknown skill number per season (2,447 of them up to
+   2023). Skill is in percent of lap time.
+2. *Prior belief*: a first season is near the level of that era's newcomers
+   (give or take the "skill spread"); each later season is near the one
+   before (give or take the "season drift"). This is what makes it
+   hierarchical: drivers are assumed to come from one common population, so a
+   driver with three races is pulled towards average.
+3. *Likelihood*: for each teammate pair in each race, only the skill gap
+   matters. A bigger gap means a bigger expected lap time gap and a higher
+   chance of being ahead (a logistic curve).
+4. *Fit*: find the skills that make prior x likelihood largest (L-BFGS on the
+   GPU, about 15 seconds).
+5. *Uncertainty*: the second derivative (Hessian) of that function at the
+   best point says how sharply the fit worsens as each skill moves. Its
+   inverse is the covariance of all the skills. This is the Laplace
+   approximation.
+
+Why only teammates: any comparison between drivers in different cars needs a
+model of the cars. Teammate comparisons do not, so the driver ratings do not
+depend on getting the cars right. The car is estimated afterwards (number 19).
+
+Limits of the approach: the Laplace approximation assumes the uncertainty is
+bell shaped and treats the five learned scale numbers as exactly known, so the
+ranges are somewhat too narrow. Calibration on the test seasons is reported in
+the README as a check.
+
+## 16. What counts as evidence, and the scale problem that had to be fixed
+
+Four kinds of result feed the model (`build_comparisons`):
+
+| Result | Seasons | How it is read |
+|---|---|---|
+| Who finished ahead in the race | all | logistic curve, slope learned |
+| Qualifying lap time gap | 1994 on | expected gap = skill gap, heavy tailed noise |
+| Who qualified ahead | where there is no usable lap time | logistic curve, slope tied (below) |
+| Race pace gap | 2018 on | expected gap = skill gap x learned factor |
+
+- A qualifying lap is never counted twice: where the time gap is used, "who
+  was ahead" is not.
+- Lap time gaps over 3% are treated as a ruined lap and only "who was ahead"
+  is kept. The noise is heavy tailed (Student t) so one freak lap cannot
+  drag a rating.
+- Each driver's comparisons in one race are weighted to add up to 1, so a
+  1950s constructor with ten cars does not count nine times.
+- Qualifying before 2006 gets its own, larger noise level (learned: 0.65%
+  against 0.39% from 2006), because one-lap and race-fuel formats made
+  teammate gaps noisier.
+
+**The flaw found and fixed.** In the first version the slope for "who
+qualified ahead" was learned freely. It came out at 17, which says a 0.1%
+skill gap means qualifying ahead 85% of the time, while the lap time data
+says 58%. The cause: before 1994 there are no lap times, so nothing fixed the
+size of a skill unit there. The prior prefers small skills, so the optimiser
+shrank every pre-1994 skill and raised the slope to compensate. The visible
+symptom was a ranking with Hülkenberg above Senna. The fix: the slope is no
+longer free. It is tied to the qualifying noise (slope = 1.5 / noise) so that
+a skill gap means the same chance of out-qualifying a teammate in every era.
+
+## 17. Era levels: ratings are relative to today, and older eras are less certain
+
+Teammate chains link the eras, but they cannot say for sure whether the
+average newcomer of 1955 was as good as the average newcomer of 2015. So the
+model has one extra unknown per decade: the level of that decade's newcomers.
+The 2020s level is fixed at 0 (something must be the reference), and each
+earlier decade may differ from the next by a typical 0.1% (`ERA_DRIFT`).
+
+This is how uncertainty becomes honestly wider for older eras: the further
+back, the more decade-to-decade steps separate a driver from the reference,
+and each step adds uncertainty. Measured in the final fit, the typical
+uncertainty (standard deviation) of a peak rating is 0.30% for drivers who
+peaked in the 1950s against 0.16% in the 2020s.
+
+`ERA_DRIFT` = 0.1 is an assumption, not a measurement. Nothing in the data
+can pin it down. A larger value would widen every old driver's range.
+
+## 18. The two settings were chosen on 2022 and 2023, and the choice barely matters
+
+Skill spread and season drift cannot be learned together with the skills (the
+optimiser would shrink them to zero), so they were chosen by fitting up to
+2021 and scoring predictions on 2022 and 2023 (`validate_model.py --tune`).
+2024 and 2025 were not involved.
+
+Season drift below 0.12 was clearly worse. Above that the surface is flat:
+the settings with drift 0.18 or 0.25 are within about 0.01 of each other in
+log loss, less than the noise from about 900 comparisons. Chosen: skill spread 0.3, season drift 0.18.
+Spread 0.2 scored 0.005 better and was not chosen, because it pulls drivers
+with short careers harder towards average for no measurable gain. The 2024
+and 2025 test was run once, with 0.3 and 0.18.
+
+## 19. Car strength is what is left after taking the driver out
+
+`car_strengths` treats a race result (PositionScore, 1 = win, 0 = last) as
+car + weight x driver skill. The weight is estimated from teammates only
+(within one team and season the car is the same), and the car is the team's
+average result minus what its drivers contributed. Measured weight: 0.27, so
+0.5% of driver skill is worth about 13% of the field in finishing position.
+
+It is deliberately simple, because the car is not what this project is about.
+It is used for the finishing position test and shown on the website.
+
+## 20. Peak, consistency, and what "rating" means
+
+- **Rating = peak skill**: the average skill over a driver's best three
+  seasons in a row. Its uncertainty comes exactly from the covariance. Known
+  bias: choosing the best window flatters drivers a little, more so for long
+  careers and noisy eras (the best of many noisy estimates is partly luck).
+- **Consistency (0 to 100, 50 = typical)** averages two measures: how often
+  the driver crashed out compared with their era (1950 to 2022, because
+  reasons stop in 2023), and from 2018 how steady their lap times were
+  compared with the field. Both are mixed with imaginary average races so
+  short careers are not extreme. It is a descriptive score, not part of the
+  fitted model, and has no uncertainty range.
+
+## 21. Validation results, and what they do and do not show
+
+Fitted up to 2023, predicting 2024 and 2025 without refitting
+(`validate_model.py`). Full tables are in the README.
+
+- Which teammate finishes ahead: 67.0% right over 376 comparisons, against
+  62.0% for "more career points". Qualifying: 70.1% against 65.0% over 472.
+- The whole gain is from 2025. In 2024 nearly every team kept its 2023
+  drivers, so "last season repeats" was already as good as anything can be,
+  and the model only matched it (65.4% against 66.0%). In 2025 many drivers
+  moved or were new, the baselines fell to 57.8% and the model held at 68.6%.
+  What the model adds is the ability to compare drivers who have never been
+  teammates.
+- On pairs who were also teammates the season before, the model is no better
+  than "last season repeats" (66.4% against 66.8%).
+- Probabilities: too cautious at the top. When the model said 80% or more
+  (39 race comparisons) the favourite won all of them.
+- Finishing positions from 2023 information: adding the driver to the car
+  improves the average miss (3.15 against 3.48 places in 2024). But for 2025
+  the model (4.41) is worse than last season's standings (3.61), because it
+  still uses 2023 cars and the standings baseline has seen 2024.
+- With about 190 race comparisons per season, one season's accuracy has a
+  margin of roughly plus or minus 7 percentage points. The 2024 result is a
+  tie, not a loss; the 2025 gap is larger than that margin.
+
+What validation cannot show: whether cross-era comparisons are right. There is
+no test set for Senna against Verstappen. Only the modern end is checked.
