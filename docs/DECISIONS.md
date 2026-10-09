@@ -391,3 +391,73 @@ Fitted up to 2023, predicting 2024 and 2025 without refitting
 
 What validation cannot show: whether cross-era comparisons are right. There is
 no test set for Senna against Verstappen. Only the modern end is checked.
+
+## 22. The simulation: what is measured, what is calibrated, what is assumed
+
+`simulate.py` races identical cars lap by lap. A lap time is the driver's pace
+(from skill and the day's form) plus noise, plus an occasional mistake. A
+quicker car behind only passes if it is quicker by more than the circuit's
+passing margin. All the numbers are in one `SETTINGS` table, which is also
+exported to the website so the browser runs exactly the same race.
+
+| Setting | Value | Where it comes from |
+|---|---|---|
+| Day to day form | 0.32% | **Calibrated** so simulated drivers beat each other as often as the validated model says (table below) |
+| Passing margin per circuit | 0.2s to 1.6s | The ORDER of circuits is **measured** (number 23); the two end values are assumed |
+| Lap to lap noise | 0.25% | Assumed. Real laps scatter by about 0.5%, but much of that is tyres and traffic |
+| Mistakes | 2% of laps, 1.5s average | Assumed |
+| Crash chance | 5% per race | Close to the measured rate (driver caused retirements are 3% to 17% of starts depending on the decade) |
+| Qualifying noise, grid gap, following gap | 0.20%, 0.25s, 0.4s | Assumed |
+
+A driver's consistency score scales their noise, mistakes and crash chance
+together: a score of 75 halves all three, 25 doubles them.
+
+The calibration check (`simulate.py`, 20,000 races per row, 20 car field):
+
+| Skill gap | Model says the better driver finishes ahead | Simulation |
+|---|---|---|
+| 0.1% | 57.2% | 57.7% |
+| 0.2% | 64.1% | 64.8% |
+| 0.4% | 76.2% | 77.1% |
+| 0.6% | 85.1% | 86.0% |
+| 1.0% | 94.8% | 93.7% |
+
+So the simulation is as predictable as real racing between teammates, no more
+and no less. What it leaves out: tyres, pit stops, safety cars, weather and
+the start. Those mostly add luck, and the form setting stands in for them.
+
+Speed: 20,000 races of 60 laps with 20 cars take under one second on the GPU.
+
+## 23. Overtaking difficulty is measured from real races
+
+For every race since 2018, `passes_per_circuit` counts how often a car gains a
+place between one lap and the next, looking only at cars that did not pit on
+either lap and comparing them only with each other (so a place gained because
+a rival pitted does not count). Circuits are then ranked: fewest passes = 1
+(hardest), most = 0. Monaco comes out hardest and Las Vegas easiest, with
+Singapore and Budapest near the top, which matches what anyone who watches F1
+would expect. It is a ranking, not a physical measurement.
+
+## 24. What is precomputed for the website, and how uncertainty is carried
+
+`export_web.py` draws 4,000 plausible versions of all 655 peak ratings from
+their joint uncertainty (the covariance from the model) on the GPU.
+
+- **Rank range**: each driver's rank in every version; the range shown is the
+  middle 90%. Ranges are wide (Senna: 2nd to 27th), and that is the honest
+  answer. Only Schumacher's 1st to 2nd is narrow.
+- **Head to head**: in each version the chance A beats B is the model's curve
+  of their skill gap. The best guess is the average over versions and the
+  range is the middle 90%. Precomputed for the 213 drivers with at least 30
+  starts (22,578 pairs); below that a rating is too uncertain to be worth a
+  page.
+- **Equal car championships**: every season from 1950 is replayed 1,000 times
+  with its real calendar and the drivers who really started each race, using
+  each driver's skill in THAT season (not their peak), in identical cars on a
+  typical circuit. Points use today's system for both the simulated and the
+  real table, so they compare like with like.
+
+Head to heads use the model's curve directly and not a fresh race simulation
+per pair, because the simulation is calibrated to that same curve (number
+22) and 22,578 separate simulations would add noise without adding
+information.

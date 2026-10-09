@@ -15,7 +15,7 @@ simulation and the website are next.
 |---|---|---|
 | 1 | Data: results since 1950, lap times since 2018, circuit outlines | done |
 | 2 | The model: driver skill separated from car performance, validated on 2024 and 2025 | done |
-| 3 | The simulation: equal car races on the GPU | not started |
+| 3 | The simulation: equal car races on the GPU | done |
 | 4 | The website (Next.js, free on Vercel) | not started |
 
 ## Data
@@ -76,6 +76,7 @@ Known weaknesses of the data (details in
 
 .venv\Scripts\python.exe validate_model.py      # 6. fit to 2023, test on 2024 and 2025 (1 minute)
 .venv\Scripts\python.exe fit_ratings.py         # 7. final ratings from all data (30 seconds)
+.venv\Scripts\python.exe export_web.py          # 8. simulate, write the website's data (1 minute)
 ```
 
 The steps of each phase are listed in [docs/MAP.md](docs/MAP.md), in the order

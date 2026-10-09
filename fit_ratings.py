@@ -213,7 +213,7 @@ def main():
     teammate_records(pairs).write_parquet(OUTPUT_FOLDER / "teammate_records.parquet")
     cars.write_parquet(OUTPUT_FOLDER / "car_strengths.parquet")
     torch.save({"drivers": ratings["DriverId"].to_list(), "covariance": covariance.float().cpu(),
-                "scales": fit.scales, "skill_spread": fit.skill_spread, "season_drift": fit.season_drift},
+                "scales": fit.scales, "era_level": fit.era_level, "skill_spread": fit.skill_spread, "season_drift": fit.season_drift},
                OUTPUT_FOLDER / "peak_covariance.pt")
     print(f"Saved ratings for {ratings.height} drivers in {OUTPUT_FOLDER}")
     print_top(ratings)

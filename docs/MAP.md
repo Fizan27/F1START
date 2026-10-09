@@ -71,7 +71,23 @@ How the files connect, and the order things run in. Updated after every step.
              data/peak_covariance.pt         uncertainty of the ratings
 
 
- Phase 3: the simulation   (not started)
+ Phase 3: the simulation
+ -----------------------
+
+ simulate.py               equal car races, thousands at once on the GPU.
+        |                  Run on its own it prints the calibration check.
+        v
+ 8. export_web.py          reads the five rating files, results and laps
+        |
+        v
+ web/public/data/drivers.json        every driver: rating, range, rank
+ web/public/data/details.json        career curves, teammate records
+ web/public/data/h2h.json            head to head chances
+ web/public/data/championships.json  every season in equal cars
+ web/public/data/settings.json       the simulation's numbers and each
+                                     circuit's overtaking difficulty
+
+
  Phase 4: the website      (not started)   will read web/public/data/
 ```
 
@@ -111,6 +127,8 @@ Drivers are named by `DriverId` (for example `hamilton`) and teams by `TeamId`
 | `model.py` | The skill model (fit, uncertainty, predictions) | the pair and pace tables | nothing (used by others) |
 | `validate_model.py` | Tests the model on 2024 and 2025 | via `model.py`, `data/results.parquet` | `docs/validation.png`, `web/public/data/validation.json` |
 | `fit_ratings.py` | Final ratings from all data | via `model.py`, `data/results.parquet` | five files in `data/` |
+| `simulate.py` | The equal car race simulation | nothing | nothing (used by others) |
+| `export_web.py` | Simulates and writes the website's data | rating files, results, laps | five JSON files in `web/public/data/` |
 | `chart_style.py` | Shared chart colours | nothing | nothing |
 | `test_*.py` | Tests, one file per script | nothing | pass/fail |
 | `requirements.txt` | Python libraries | | |
