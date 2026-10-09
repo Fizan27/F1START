@@ -34,9 +34,9 @@ well enough to explain it confidently in an interview.
   reasonable decisions and log them. Only stop for:
   1. Things that cannot be done without the owner (logging in to GitHub or
      Vercel). Then give exact click by click steps.
-  2. The end of each phase: list the 2 or 3 functions the owner must
-     understand, ask them to explain those back in their own words, and
-     correct them.
+  At the end of each phase, name the 2 or 3 functions the owner must
+  understand and explain each in a few plain lines. Do not wait for the owner
+  to explain them back (changed by the owner on 2026-10-09: finish fast).
 - After each step, say exactly how to run it and what the owner should expect
   to see.
 - Commit after each step. Push after each phase.
