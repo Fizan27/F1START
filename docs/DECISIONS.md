@@ -823,3 +823,53 @@ one server endpoint to keep the API key secret, so the build is now a
 normal Next.js build: every page is still pre-rendered as static HTML, and
 only `/api/chat` runs as a small serverless function on Vercel's free tier.
 Vercel's project settings must point the Root Directory at `web`.
+
+## 37. Race page checks on the all-time grid: qualifying and the back of the grid
+
+The owner asked for two checks on the "All-time top 20" grid, with a change
+only if the simulator was clearly out of line with real F1. Both are printed
+by `check_simulator.py --race-page`. Neither needed a change.
+
+**Qualifying** (1,000 simulated sessions):
+
+| Driver | Skill | Pole | Average grid slot |
+|---|---|---|---|
+| Michael Schumacher | +1.41 | 37.2% | 3.8 |
+| Juan Manuel Fangio | +0.94 | 6.1% | 8.7 |
+| Ayrton Senna | +0.92 | 7.2% | 8.6 |
+| Jackie Stewart | +0.92 | 6.0% | 9.1 |
+| Jim Clark | +0.91 | 5.6% | 8.9 |
+
+The top rated driver takes pole 37% of the time, above the owner's 25%
+threshold. Fangio, Senna, Stewart and Clark are rated within 0.03% of each
+other and of the rest of the top 20 within about 0.3%, so they share poles.
+For comparison, each real season's best qualifier from 2014 to 2025 took
+between 20% (Bottas, 2017) and 62.5% (Hamilton, 2020) of poles, usually with
+a car advantage on top. The simulator's qualifying scatter is also consistent
+with the model's measured qualifying noise: each driver's simulated lap
+varies by about 0.41% (form 0.40% and lap noise 0.10% combined), and the
+model's teammate qualifying gaps imply about 0.43% per driver. So qualifying
+randomness was left as it is.
+
+**The back of the grid** at Silverstone (1,000 races): drivers rated 2nd to
+10th, when they started 16th to 20th (about 17.8th on average), finished
+13.3th to 15.0th on average, gaining 2.9 to 4.4 places; drivers rated 11th to
+20th gained 2.1 to 2.9. Real F1 from 2018 to 2025: all 699 classified
+drivers who started 16th to 20th gained 4.2 places on average; the 39 of them
+in one of the season's three best cars gained 11.2. The simulated gains are a
+little below the real average (which also benefits from retirements ahead
+and pit strategy) and far below the fast-car cases. That is expected: in
+identical cars the drivers of the all-time top 20 are separated by a few
+tenths of a second a lap, against about a second for a top car starting at
+the back, and Silverstone's passing margin is about 0.7 seconds. A top 10
+rated driver starting 18th does usually gain several places, so the
+overtaking model was left as it is.
+
+**The timing tower** was built in lineup order and moved into place with
+CSS transforms, so the order on screen was right in testing but the page
+itself (and so screen readers, copy and paste, and any browser that drew it
+differently) was in lineup order. It is now built in race order, P1 first,
+updating six times a second; a row that changes place slides from its old
+position with a short animation. `web/tests/tower.test.ts` checks the order
+before the start, during the race, after an overtake, with a crashed car, and
+at the flag, and a browser check confirmed the order during a live race.
