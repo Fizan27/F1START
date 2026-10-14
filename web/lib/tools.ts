@@ -311,7 +311,9 @@ export type ToolName = (typeof TOOL_DEFINITIONS)[number]["name"];
 
 /** Run one tool by name. Unknown tools and bad input come back as an error object, never a crash. */
 export function runTool(data: ModelData, name: string, input: unknown): Record<string, unknown> {
-  const args = (input ?? {}) as Record<string, never>;
+  // The input comes from the language model, so it is checked inside each tool;
+  // anything missing or malformed ends up in the catch below as an error result.
+  const args = (input ?? {}) as never;
   try {
     switch (name) {
       case "get_driver_rating": return getDriverRating(data, args);

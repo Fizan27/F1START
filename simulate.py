@@ -14,7 +14,8 @@
 #     3. Every lap, each driver's lap time = their pace for the day + a SMALL
 #        lap to lap noise + occasionally a mistake. Rarely, a crash. The lap
 #        noise is kept small on purpose, so it cannot outweigh a real skill gap.
-#     4. A car that catches the one in front tries to pass. The bigger its
+#     4. In about half the races a safety car closes up the field once.
+#     5. A car that catches the one in front tries to pass. The bigger its
 #        pace advantage compared with the circuit's difficulty, the more
 #        likely it gets past on that lap. A clearly faster car gets by within
 #        a few laps at Monza; at Monaco it may stay stuck.
@@ -36,7 +37,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # Every number the simulation uses, in one place. Percentages are of a lap.
 # Which are measured and which are assumptions: DECISIONS.md 22 and 32.
 SETTINGS = {
-    "formSd": 0.38,  # how much a driver's pace varies from one race to the next (%), calibrated
+    "formSd": 0.40,  # how much a driver's pace varies from one race to the next (%), calibrated
     "qualiNoise": 0.10,  # extra randomness of the single qualifying lap (%)
     "qualiFormLink": 0.32,  # how strongly qualifying form follows race form (0 = unrelated, 1 = the same), measured
     "lapNoise": 0.08,  # lap to lap variation of a typical driver (%): small on purpose
@@ -48,6 +49,7 @@ SETTINGS = {
     "passMarginEasy": 0.0,  # pace advantage (s per lap) for an even chance of passing, easiest circuit
     "passMarginHard": 1.0,  # ... and at the hardest (Monaco)
     "passSpread": 0.15,  # how gradually the passing chance rises with the advantage (s)
+    "safetyCarChance": 0.56,  # chance a race has a safety car, measured from 2018 to 2026 races
 }
 
 RETIRED = 1e7  # added to a crashed car's race time, so it sorts behind every finisher
@@ -112,6 +114,20 @@ def hold_up(race_time, lap_time, pace, margin, pass_luck, follow_luck):
     return torch.empty_like(race_time).scatter_(1, order, finish)  # back to car number order
 
 
+def bunch_up(race_time, crashed, safety_car_now):
+    """A safety car: in the races where it comes out, close every gap to one following gap.
+
+    The order stays the same; only the gaps are lost. This is what makes a
+    big lead disappear and gives the cars behind another chance at the restart.
+    """
+    running_time = torch.where(crashed, torch.inf, race_time)
+    order = running_time.argsort(dim=1)
+    place = order.argsort(dim=1).float()  # 0 = leader
+    leader = running_time.min(dim=1, keepdim=True).values
+    bunched = leader + place * SETTINGS["followGapSeconds"]
+    return torch.where(safety_car_now[:, None] & ~crashed, bunched, race_time)
+
+
 def simulate_races(skill, errors, lap_seconds, laps, difficulty, generator=None, grid=None) -> dict:
     """Simulate many equal car races at once.
 
@@ -121,7 +137,8 @@ def simulate_races(skill, errors, lap_seconds, laps, difficulty, generator=None,
     grid:       optional starting slot per driver (0 = pole). Without it, a
                 simulated qualifying session sets the grid.
     Returns a dict of races x drivers tables: "place" (1 = winner), "grid"
-    (0 = pole), "crashed" and "best_lap" (quickest lap in seconds).
+    (0 = pole), "crashed", "best_lap" (quickest lap in seconds) and
+    "race_time" (total seconds; crashed cars get a huge number).
     """
     races, drivers = skill.shape
     shape = (races, drivers)
@@ -152,6 +169,9 @@ def simulate_races(skill, errors, lap_seconds, laps, difficulty, generator=None,
     crashed = torch.zeros(shape, dtype=torch.bool, device=skill.device)
     best_lap = torch.full(shape, float("inf"), device=skill.device)
     crash_chance_per_lap = SETTINGS["crashChance"] / laps * errors
+    # Each race may have one safety car, on a random lap between 10% and 90% of the distance.
+    has_safety_car = chance(races) < SETTINGS["safetyCarChance"]
+    safety_car_lap = (laps * (0.1 + 0.8 * chance(races))).long()
     for lap in range(laps):
         noise = bell(*shape) * SETTINGS["lapNoise"] * percent * errors
         made_mistake = chance(*shape) < SETTINGS["mistakeChance"] * errors
@@ -165,8 +185,9 @@ def simulate_races(skill, errors, lap_seconds, laps, difficulty, generator=None,
         # A crashed car goes to the back. Crashing later still beats crashing earlier.
         race_time = race_time + crashes_now * (RETIRED - lap * 1000.0)
         crashed |= crashes_now
+        race_time = bunch_up(race_time, crashed, has_safety_car & (safety_car_lap == lap))
     place = race_time.argsort(dim=1).argsort(dim=1) + 1
-    return {"place": place, "grid": grid_slot, "crashed": crashed, "best_lap": best_lap}
+    return {"place": place, "grid": grid_slot, "crashed": crashed, "best_lap": best_lap, "race_time": race_time}
 
 
 def chance_a_beats_b(skill_gap: float, field_size: int = 20, races: int = 20000, seed: int = 0) -> float:

@@ -34,14 +34,14 @@ const toolCall: Reply = {
   content: [{ type: "tool_use", id: "call_1", name: "get_driver_rating", input: { name: "Senna" } }],
 };
 
-function deps(client: Anthropic, apiKey: string | undefined = "test-key") {
-  return { apiKey, makeClient: () => client, data: MODEL_DATA, limiter: generous() };
+function deps(client: Anthropic) {
+  return { apiKey: "test-key" as string | undefined, makeClient: () => client, data: MODEL_DATA, limiter: generous() };
 }
 
 describe("handleChat", () => {
   it("says the assistant is unavailable when no API key is set, without calling the API", async () => {
     const { client, requests } = fakeClient([]);
-    const result = await handleChat({ question: "Hi" }, "v", deps(client, undefined));
+    const result = await handleChat({ question: "Hi" }, "v", { ...deps(client), apiKey: undefined });
     expect(result.status).toBe(503);
     expect(String(result.body.error)).toMatch(/not available/);
     expect(requests).toHaveLength(0);
@@ -74,7 +74,8 @@ describe("handleChat", () => {
     expect(result.body.tools).toEqual([{ name: "get_driver_rating", input: { name: "Senna" } }]);
     // The tool result went back to the model in the second request.
     const second = requests[1].messages as { role: string; content: unknown }[];
-    expect(JSON.stringify(second.at(-1))).toContain('"wins":41');
+    const toolResult = (second.at(-1)!.content as { content: string }[])[0].content;
+    expect(JSON.parse(toolResult).wins).toBe(41);
     // Safety settings are on every request.
     expect(requests[0].fallbacks).toBe("default");
   });

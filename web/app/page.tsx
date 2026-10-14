@@ -181,6 +181,9 @@ export default function RacePage() {
           </h3>
           <div className="lap-counter num">
             {phase === "finished" ? "Chequered flag" : `Lap ${leaderLap} / ${race!.laps}`}
+            {phase === "racing" && race!.safetyCarLap !== null && Math.abs(leaderLap - race!.safetyCarLap) <= 1 && (
+              <span style={{ color: "#eda100", marginLeft: 12 }}>Safety car</span>
+            )}
           </div>
         </div>
         <div className="row">

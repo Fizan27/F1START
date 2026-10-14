@@ -29,6 +29,7 @@ export type Race = {
   gridFromQualifying: boolean; // false when the user set the grid
   crashLap: (number | null)[]; // the lap a car crashed on, or null
   bestLap: number[]; // each car's quickest lap in seconds
+  safetyCarLap: number | null; // the lap the safety car came out on, if it did
   finishOrder: number[]; // car numbers, winner first
 };
 
@@ -87,6 +88,8 @@ export function simulateRace(
   const lineTimes = raceTime.map((time) => [time]);
   const crashLap: (number | null)[] = new Array(count).fill(null);
   const bestLap = new Array<number>(count).fill(Infinity);
+  // Maybe one safety car, on a random lap between 10% and 90% of the distance.
+  const safetyCarLap = Math.random() < s.safetyCarChance ? Math.floor(laps * (0.1 + 0.8 * Math.random())) + 1 : -1;
 
   for (let lap = 1; lap <= laps; lap++) {
     // A small lap to lap noise, and now and then a mistake.
@@ -117,6 +120,16 @@ export function simulateRace(
     for (const car of running) {
       if (Math.random() < (s.crashChance / laps) * errors[car]) crashLap[car] = lap;
     }
+
+    // A safety car closes every gap to one following gap; the order stays.
+    if (lap === safetyCarLap) {
+      const stillRunning = running.filter((car) => crashLap[car] === null).sort((a, b) => raceTime[a] - raceTime[b]);
+      const leaderTime = raceTime[stillRunning[0]];
+      stillRunning.forEach((car, place) => {
+        raceTime[car] = leaderTime + place * s.followGapSeconds;
+        lineTimes[car][lap] = raceTime[car];
+      });
+    }
   }
 
   // Finishers by race time, then crashed cars: the later the crash, the higher.
@@ -127,7 +140,10 @@ export function simulateRace(
     if (crashB === null) return 1;
     return crashB - crashA;
   });
-  return { laps, lineTimes, grid, gridFromQualifying: !options.grid, crashLap, bestLap, finishOrder };
+  return {
+    laps, lineTimes, grid, gridFromQualifying: !options.grid, crashLap, bestLap, finishOrder,
+    safetyCarLap: safetyCarLap > 0 ? safetyCarLap : null,
+  };
 }
 
 /**

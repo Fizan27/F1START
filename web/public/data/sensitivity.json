@@ -1,0 +1,322 @@
+{
+ "assumptions": {
+  "hardly changed": 0.03,
+  "default": 0.1,
+  "changed a lot": 0.25
+ },
+ "solidWithin": 3,
+ "minStarts": 30,
+ "top": [
+  {
+   "id": "michael_schumacher",
+   "name": "Michael Schumacher",
+   "ranks": {
+    "hardly changed": 1,
+    "default": 1,
+    "changed a lot": 1
+   },
+   "skills": {
+    "hardly changed": 1.437,
+    "default": 1.413,
+    "changed a lot": 1.401
+   },
+   "solid": true
+  },
+  {
+   "id": "fangio",
+   "name": "Juan Fangio",
+   "ranks": {
+    "hardly changed": 5,
+    "default": 2,
+    "changed a lot": 2
+   },
+   "skills": {
+    "hardly changed": 0.955,
+    "default": 0.941,
+    "changed a lot": 0.936
+   },
+   "solid": true
+  },
+  {
+   "id": "senna",
+   "name": "Ayrton Senna",
+   "ranks": {
+    "hardly changed": 6,
+    "default": 3,
+    "changed a lot": 4
+   },
+   "skills": {
+    "hardly changed": 0.95,
+    "default": 0.921,
+    "changed a lot": 0.903
+   },
+   "solid": true
+  },
+  {
+   "id": "stewart",
+   "name": "Jackie Stewart",
+   "ranks": {
+    "hardly changed": 3,
+    "default": 4,
+    "changed a lot": 5
+   },
+   "skills": {
+    "hardly changed": 0.978,
+    "default": 0.918,
+    "changed a lot": 0.868
+   },
+   "solid": true
+  },
+  {
+   "id": "clark",
+   "name": "Jim Clark",
+   "ranks": {
+    "hardly changed": 2,
+    "default": 5,
+    "changed a lot": 6
+   },
+   "skills": {
+    "hardly changed": 0.984,
+    "default": 0.914,
+    "changed a lot": 0.854
+   },
+   "solid": false
+  },
+  {
+   "id": "rindt",
+   "name": "Jochen Rindt",
+   "ranks": {
+    "hardly changed": 4,
+    "default": 6,
+    "changed a lot": 8
+   },
+   "skills": {
+    "hardly changed": 0.965,
+    "default": 0.898,
+    "changed a lot": 0.842
+   },
+   "solid": false
+  },
+  {
+   "id": "max_verstappen",
+   "name": "Max Verstappen",
+   "ranks": {
+    "hardly changed": 7,
+    "default": 7,
+    "changed a lot": 3
+   },
+   "skills": {
+    "hardly changed": 0.87,
+    "default": 0.884,
+    "changed a lot": 0.906
+   },
+   "solid": false
+  },
+  {
+   "id": "alonso",
+   "name": "Fernando Alonso",
+   "ranks": {
+    "hardly changed": 10,
+    "default": 8,
+    "changed a lot": 7
+   },
+   "skills": {
+    "hardly changed": 0.798,
+    "default": 0.817,
+    "changed a lot": 0.852
+   },
+   "solid": true
+  },
+  {
+   "id": "frentzen",
+   "name": "Heinz-Harald Frentzen",
+   "ranks": {
+    "hardly changed": 8,
+    "default": 9,
+    "changed a lot": 9
+   },
+   "skills": {
+    "hardly changed": 0.841,
+    "default": 0.816,
+    "changed a lot": 0.801
+   },
+   "solid": true
+  },
+  {
+   "id": "moss",
+   "name": "Stirling Moss",
+   "ranks": {
+    "hardly changed": 9,
+    "default": 10,
+    "changed a lot": 10
+   },
+   "skills": {
+    "hardly changed": 0.821,
+    "default": 0.782,
+    "changed a lot": 0.752
+   },
+   "solid": true
+  },
+  {
+   "id": "hakkinen",
+   "name": "Mika H\u00e4kkinen",
+   "ranks": {
+    "hardly changed": 13,
+    "default": 11,
+    "changed a lot": 12
+   },
+   "skills": {
+    "hardly changed": 0.747,
+    "default": 0.723,
+    "changed a lot": 0.711
+   },
+   "solid": true
+  },
+  {
+   "id": "ascari",
+   "name": "Alberto Ascari",
+   "ranks": {
+    "hardly changed": 15,
+    "default": 12,
+    "changed a lot": 11
+   },
+   "skills": {
+    "hardly changed": 0.727,
+    "default": 0.719,
+    "changed a lot": 0.719
+   },
+   "solid": false
+  },
+  {
+   "id": "hill",
+   "name": "Graham Hill",
+   "ranks": {
+    "hardly changed": 11,
+    "default": 13,
+    "changed a lot": 17
+   },
+   "skills": {
+    "hardly changed": 0.775,
+    "default": 0.711,
+    "changed a lot": 0.656
+   },
+   "solid": false
+  },
+  {
+   "id": "surtees",
+   "name": "John Surtees",
+   "ranks": {
+    "hardly changed": 12,
+    "default": 14,
+    "changed a lot": 21
+   },
+   "skills": {
+    "hardly changed": 0.762,
+    "default": 0.694,
+    "changed a lot": 0.637
+   },
+   "solid": false
+  },
+  {
+   "id": "prost",
+   "name": "Alain Prost",
+   "ranks": {
+    "hardly changed": 14,
+    "default": 15,
+    "changed a lot": 16
+   },
+   "skills": {
+    "hardly changed": 0.728,
+    "default": 0.691,
+    "changed a lot": 0.665
+   },
+   "solid": true
+  },
+  {
+   "id": "button",
+   "name": "Jenson Button",
+   "ranks": {
+    "hardly changed": 22,
+    "default": 16,
+    "changed a lot": 13
+   },
+   "skills": {
+    "hardly changed": 0.658,
+    "default": 0.665,
+    "changed a lot": 0.687
+   },
+   "solid": false
+  },
+  {
+   "id": "mansell",
+   "name": "Nigel Mansell",
+   "ranks": {
+    "hardly changed": 17,
+    "default": 17,
+    "changed a lot": 19
+   },
+   "skills": {
+    "hardly changed": 0.696,
+    "default": 0.663,
+    "changed a lot": 0.642
+   },
+   "solid": true
+  },
+  {
+   "id": "massa",
+   "name": "Felipe Massa",
+   "ranks": {
+    "hardly changed": 25,
+    "default": 18,
+    "changed a lot": 15
+   },
+   "skills": {
+    "hardly changed": 0.639,
+    "default": 0.65,
+    "changed a lot": 0.678
+   },
+   "solid": false
+  },
+  {
+   "id": "hamilton",
+   "name": "Lewis Hamilton",
+   "ranks": {
+    "hardly changed": 27,
+    "default": 19,
+    "changed a lot": 14
+   },
+   "skills": {
+    "hardly changed": 0.628,
+    "default": 0.647,
+    "changed a lot": 0.682
+   },
+   "solid": false
+  },
+  {
+   "id": "gurney",
+   "name": "Dan Gurney",
+   "ranks": {
+    "hardly changed": 16,
+    "default": 20,
+    "changed a lot": 30
+   },
+   "skills": {
+    "hardly changed": 0.697,
+    "default": 0.636,
+    "changed a lot": 0.585
+   },
+   "solid": false
+  }
+ ],
+ "onlyUnderOther": {
+  "hardly changed": [
+   "Bruce McLaren",
+   "Ronnie Peterson",
+   "James Hunt"
+  ],
+  "changed a lot": [
+   "Nico Rosberg",
+   "Charles Leclerc"
+  ]
+ }
+}

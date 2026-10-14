@@ -109,7 +109,8 @@ async function main() {
   }
   const client = new Anthropic();
   const model = process.env.PIT_WALL_MODEL || DEFAULT_MODEL;
-  const rows = [];
+  type Row = { id: string; category: string; question: string; answer: string; used: string[]; untraced: string[]; rewritten: boolean; checks: Record<string, boolean | null> };
+  const rows: Row[] = [];
   for (const q of QUESTIONS) {
     const result = await askPitWall(client, MODEL_DATA, q.question, [], model);
     const { checks, untraced, used } = score(q, result.answer, result.toolCalls);

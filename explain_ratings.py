@@ -12,11 +12,17 @@
 #      shortest route through shared teammates, preferring teammates who
 #      raced together for longer.
 #
-#   How (1) is done without refitting thousands of times: removing a set of
-#   results nudges the best fit by roughly covariance x (how hard those
-#   results were pulling). It is the same covariance the Laplace step makes,
-#   and it is a standard approximation ("influence functions"). It is
-#   accurate for small nudges and only roughly right for big ones.
+#   How (1) is done without refitting 2,828 times. Near the best fit the
+#   badness is close to a bowl shape (a quadratic), and for a bowl, removing
+#   a set of results moves the bottom by an amount that can be written down
+#   exactly: (curvature WITHOUT those results) inverse, times how hard those
+#   results were pulling. The curvature without them is the full curvature
+#   (the Hessian, whose inverse is the model's covariance) minus their own
+#   small part, and the "Woodbury identity" turns that subtraction into a
+#   tiny calculation per pairing, so no big matrix is inverted again.
+#   It is still an approximation (the badness is only roughly a bowl), but
+#   unlike the simpler one-step version it does not understate the effect of
+#   a pairing that carries most of the information about a driver.
 #
 # What it reads: the same tables as model.py, and data/ratings.parquet.
 # What it produces: web/public/data/explain.json.
@@ -40,68 +46,92 @@ BATTLES_SHOWN = 4  # per direction
 SMALLEST_SHOWN = 0.005  # battles that move the rating less than this are left out
 
 
-def pull_of_each_result(fit: model.Fit) -> dict:
-    """For every comparison: how hard it pulls on the skill gap between the two drivers.
+def pull_and_curvature(fit: model.Fit) -> dict:
+    """For every comparison: how hard it pulls on the skill gap, and how sharply.
 
-    In maths terms, the slope of that comparison's log likelihood with respect
-    to the gap, at the best fit. Positive means "this result wants A rated
-    higher relative to B".
+    pull:      slope of that comparison's log likelihood with respect to the
+               gap between the two drivers, at the best fit. Positive means
+               "this result wants A rated higher relative to B".
+    curvature: how quickly that slope changes (minus the second derivative):
+               how much information the comparison carries about the gap.
+    Each comparison depends only on its own gap, so both can be worked out
+    for all comparisons at once.
     """
     data, scales = fit.data, fit.scales
-    parts = model.split(data["unknowns"], data["layout"])
-    pulls = {}
+    skill = model.split(data["unknowns"], data["layout"])["skill"]
+    noise_name = {"quali_gap": "quali_noise", "old_quali_gap": "old_quali_noise", "pace_gap": "pace_noise"}
+    out = {}
     for kind, rows in data["results"].items():
-        gap = parts["skill"][rows["a"]] - parts["skill"][rows["b"]]
-        if parts["wet"] is not None and rows["wet"] is not None:
-            gap = gap + rows["wet"] * (parts["wet"][rows["driver_a"]] - parts["wet"][rows["driver_b"]])
-        gap = gap.detach().requires_grad_(True)
-        single = {"race_ahead": None, "quali_ahead": None}
-        if kind in single:
+        gap = (skill[rows["a"]] - skill[rows["b"]]).detach().requires_grad_(True)
+        if kind in ("race_ahead", "quali_ahead"):
             slope = scales["race_slope"] if kind == "race_ahead" else model.AHEAD_SLOPE_PER_NOISE / scales["quali_noise"]
             chance = -torch.nn.functional.binary_cross_entropy_with_logits(slope * gap, rows["value"], reduction="none")
         else:
             factor = scales["pace_factor"] if kind == "pace_gap" else 1.0
-            noise = {"quali_gap": "quali_noise", "old_quali_gap": "old_quali_noise", "pace_gap": "pace_noise"}[kind]
-            chance = model.heavy_tailed_log_chance(rows["value"], -factor * gap, scales[noise])
-        (rows["weight"] * chance).sum().backward()
-        pulls[kind] = gap.grad
-    return pulls
+            chance = model.heavy_tailed_log_chance(rows["value"], -factor * gap, scales[noise_name[kind]])
+        total = (rows["weight"] * chance).sum()
+        (pull,) = torch.autograd.grad(total, gap, create_graph=True)
+        (bend,) = torch.autograd.grad(pull.sum(), gap)
+        out[kind] = (pull.detach(), -bend.detach())
+    return out
+
+
+def pairing_columns(fit: model.Fit) -> tuple[list, list]:
+    """Group every comparison by teammate pairing, and within that by season pair.
+
+    Returns the pairings (DriverA, DriverB, first season, last season, races)
+    and, for each, a list of columns (skill position of A, of B, total pull,
+    total curvature): one column per season the two were teammates.
+    """
+    data = fit.data
+    measured = pull_and_curvature(fit)
+    parts = []
+    for kind, rows in data["results"].items():
+        pull, curvature = measured[kind]
+        kind_rows = data["comparisons"].filter(pl.col(kind).is_not_null())
+        parts.append(kind_rows.select("DriverA", "DriverB", "Year", "Round").with_columns(
+            pl.Series("a", rows["a"].tolist()), pl.Series("b", rows["b"].tolist()),
+            pl.Series("pull", pull.tolist()), pl.Series("curvature", curvature.tolist())))
+    table = pl.concat(parts)
+    pairings = table.group_by("DriverA", "DriverB").agg(
+        pl.col("Year").min().alias("From"), pl.col("Year").max().alias("To"),
+        pl.struct("Year", "Round").n_unique().alias("Races")).sort("DriverA", "DriverB")
+    columns = table.group_by("DriverA", "DriverB", "a", "b").agg(pl.col("pull").sum(), pl.col("curvature").sum())
+    by_pairing = {}
+    for a_driver, b_driver, a, b, pull, curvature in columns.iter_rows():
+        by_pairing.setdefault((a_driver, b_driver), []).append((a, b, pull, curvature))
+    return pairings.rows(), [by_pairing[(row[0], row[1])] for row in pairings.rows()]
 
 
 def battle_effects(fit: model.Fit, weights: torch.Tensor) -> tuple[torch.Tensor, list]:
     """How much each teammate pairing moves each driver's peak rating: pairings x drivers.
 
-    Returns the table and the pairings it refers to (DriverA, DriverB, first
-    and last season, races). The number is the rating WITH the pairing minus
-    the rating WITHOUT it, so positive means the battle pushed the rating up.
+    The number is the rating WITH the pairing minus the rating WITHOUT it, so
+    positive means the battle pushed the rating up. For one pairing with
+    columns U (one per season: +1 for A's skill that season, -1 for B's),
+    total pulls s and curvatures c, removing it moves every driver's peak by
+        m . (s + (diag(1/c) - M)^-1 M s),   M = U' Cov U,   m = U' Cov w
+    which is the Woodbury identity applied to (Hessian - U diag(c) U')^-1.
     """
-    data = fit.data
+    covariance = fit.covariance
     start, end = fit.layout["skill"]
     full = torch.zeros(weights.shape[0], fit.layout["total"], dtype=model.DTYPE, device=model.DEVICE)
     full[:, start:end] = weights[:, start:end]
-    # Column j of `reach` = how each unknown is tied to driver j's peak.
-    reach = fit.covariance @ full.T
-    pulls = pull_of_each_result(fit)
+    reach = covariance @ full.T  # column j: how each unknown is tied to driver j's peak
+    pairings, columns = pairing_columns(fit)
 
-    comparisons = data["comparisons"].with_row_index("row")
-    pairings = comparisons.group_by("DriverA", "DriverB").agg(
-        pl.col("Year").min().alias("From"), pl.col("Year").max().alias("To"),
-        pl.col("Round").count().alias("Races")).sort("DriverA", "DriverB").with_row_index("group")
-    group_of_row = comparisons.join(pairings.select("DriverA", "DriverB", "group"), on=["DriverA", "DriverB"])
-    group_of_row = torch.tensor(group_of_row.sort("row")["group"].to_list(), device=model.DEVICE)
-
-    effects = torch.zeros(pairings.height, weights.shape[0], dtype=model.DTYPE, device=model.DEVICE)
-    wet_start = fit.layout["wet"][0]
-    for kind, rows in data["results"].items():
-        if rows["a"].numel() == 0:
-            continue
-        # Which comparison rows of this kind belong to which pairing.
-        kind_rows = torch.tensor(comparisons.filter(pl.col(kind).is_not_null())["row"].to_list(), device=model.DEVICE)
-        moved = reach[rows["a"]] - reach[rows["b"]]  # comparisons x drivers
-        if fit.wet and rows["wet"] is not None:
-            moved = moved + rows["wet"][:, None] * (reach[wet_start + rows["driver_a"]] - reach[wet_start + rows["driver_b"]])
-        effects.index_add_(0, group_of_row[kind_rows], pulls[kind][:, None] * moved)
-    return effects, pairings.drop("group").rows()
+    effects = torch.zeros(len(pairings), weights.shape[0], dtype=model.DTYPE, device=model.DEVICE)
+    for row, cols in enumerate(columns):
+        a = torch.tensor([col[0] for col in cols], device=model.DEVICE)
+        b = torch.tensor([col[1] for col in cols], device=model.DEVICE)
+        pull = torch.tensor([col[2] for col in cols], dtype=model.DTYPE, device=model.DEVICE)
+        curvature = torch.tensor([col[3] for col in cols], dtype=model.DTYPE, device=model.DEVICE).clamp(min=1e-9)
+        cov_u = covariance[:, a] - covariance[:, b]  # Cov U
+        small = cov_u[a] - cov_u[b]  # M = U' Cov U, one row and column per season
+        correction = torch.linalg.solve(torch.diag(1 / curvature) - small, small @ pull)
+        moved = reach[a] - reach[b]  # m for every driver at once: seasons x drivers
+        effects[row] = (pull + correction) @ moved
+    return effects, pairings
 
 
 def chains_to_today(pairs: pl.DataFrame, latest: int) -> dict:
@@ -117,7 +147,8 @@ def chains_to_today(pairs: pl.DataFrame, latest: int) -> dict:
     for a, b, races, first, last in together.iter_rows():
         links.setdefault(a, []).append((b, races, first, last))
         links.setdefault(b, []).append((a, races, first, last))
-    today = set(pairs.filter(pl.col("Year") == latest).select(pl.concat_list("DriverA", "DriverB")).explode("DriverA")["DriverA"])
+    latest_pairs = pairs.filter(pl.col("Year") == latest)
+    today = set(latest_pairs["DriverA"]) | set(latest_pairs["DriverB"])
     cost = {driver: 0.0 for driver in today}
     step = {}  # driver -> (next driver towards today, races, first, last)
     queue = [(0.0, driver) for driver in today]
@@ -147,7 +178,7 @@ def main():
     pairs, pace = model.load_tables()
     ratings = pl.read_parquet("data/ratings.parquet")
     latest = pairs["Year"].max()
-    fit = model.fit_model(pairs, pace, latest, wet_races=model.load_wet_races())
+    fit = model.fit_model(pairs, pace, latest)
     _, _, weights = fit_ratings.peak_ratings(fit)
     drivers = list(dict.fromkeys(driver for driver, _ in fit.index))  # same order as the weights
     effects, pairings = battle_effects(fit, weights)
@@ -167,16 +198,16 @@ def main():
             return shown
 
         explained[driver] = {
-            "up": battles(order.flip(0)[:BATTLES_SHOWN]),
-            "down": battles(order[:BATTLES_SHOWN]),
+            "up": [b for b in battles(order.flip(0)[:BATTLES_SHOWN]) if b[5] > 0],
+            "down": [b for b in battles(order[:BATTLES_SHOWN]) if b[5] < 0],
             "chain": chains.get(driver, []),
         }
     OUTPUT_FILE.write_text(json.dumps(explained, separators=(",", ":")), encoding="utf-8")
     print(f"Saved explanations for {len(explained)} drivers to {OUTPUT_FILE} "
           f"({OUTPUT_FILE.stat().st_size / 1024:.0f} KB)")
+    names = dict(ratings.select("DriverId", "DriverName").iter_rows())
     for driver in ["hamilton", "michael_schumacher", "senna", "frentzen"]:
-        name = dict(ratings.select("DriverId", "DriverName").iter_rows()).get(driver, driver)
-        print(f"\n{name}: up {explained[driver]['up'][:3]}\n  down {explained[driver]['down'][:3]}"
+        print(f"\n{names.get(driver, driver)}: up {explained[driver]['up'][:3]}\n  down {explained[driver]['down'][:3]}"
               f"\n  chain {[link[0] for link in explained[driver]['chain']]}")
 
 

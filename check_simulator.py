@@ -58,7 +58,11 @@ def measure(simulate_races, field: list[dict], lap_seconds: float, laps: int, di
 
     result = simulate_races(skill, errors, lap_seconds, laps, difficulty, generator)
     best = result["best_lap"].argmin(dim=1)  # field is sorted best first, so 0, 1, 2 are the top three
+    # Gaps at the flag, among cars that finished: winner to second, and to tenth.
+    finish_order = torch.where(result["crashed"], torch.inf, result["race_time"]).sort(dim=1).values
     numbers = {
+        "gap_to_second": (finish_order[:, 1] - finish_order[:, 0]).median().item(),
+        "gap_to_tenth": (finish_order[:, 9] - finish_order[:, 0]).median().item(),
         "rank_correlation": rank_correlation(result["grid"], result["place"], result["crashed"]),
         "average_places_moved": (result["grid"] + 1 - result["place"]).abs().float().mean().item(),
         "fastest_lap_top3": (best < 3).float().mean().item(),
@@ -96,6 +100,8 @@ def print_numbers(label: str, numbers: dict):
     for slot in (1, 5, 15):
         print(f"  top rated driver wins from {slot:<2}     {numbers[f'top_wins_from_{slot}'] * 100:5.1f}%")
     print(f"  fastest lap by a top 3 driver     {numbers['fastest_lap_top3'] * 100:5.1f}%")
+    if "gap_to_second" in numbers:
+        print(f"  median gap, winner to 2nd / 10th  {numbers['gap_to_second']:.1f}s / {numbers['gap_to_tenth']:.1f}s")
 
 
 def main():

@@ -66,6 +66,7 @@ export type SimSettings = {
   qualiNoise: number;
   qualiFormLink: number;
   passSpread: number;
+  safetyCarChance: number;
   lapNoise: number;
   mistakeChance: number;
   mistakeSeconds: number;
