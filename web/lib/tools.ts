@@ -51,14 +51,17 @@ const round = (value: number, digits = 2) => Number(value.toFixed(digits));
 export function findDriver(data: ModelData, name: string): Driver | null {
   const wanted = plain(name);
   if (!wanted) return null;
-  const exact = data.drivers.find((d) => plain(d.name) === wanted || d.id === wanted.replace(/ /g, "_"));
+  const exact = data.drivers.find((d) => plain(d.name) === wanted);
   if (exact) return exact;
   const words = wanted.split(" ");
   const matches = data.drivers.filter((d) => {
     const full = plain(d.name);
     return words.every((word) => full.split(" ").some((part) => part.startsWith(word)));
   });
-  return matches.sort((a, b) => b.starts - a.starts)[0] ?? null;
+  if (matches.length) return matches.sort((a, b) => b.starts - a.starts)[0];
+  // Last resort: the data's own id ("max_verstappen"). Not first, because some
+  // ids are bare surnames ("verstappen" is Jos), which would beat Max.
+  return data.drivers.find((d) => d.id === name.trim().toLowerCase()) ?? null;
 }
 
 function notFound(name: string) {

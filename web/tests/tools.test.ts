@@ -20,6 +20,10 @@ describe("findDriver", () => {
   it("picks the better known driver when a surname is shared", () => {
     expect(findDriver(MODEL_DATA, "Schumacher")?.id).toBe("michael_schumacher");
     expect(findDriver(MODEL_DATA, "Mick Schumacher")?.id).toBe("mick_schumacher");
+    // The data's id for Jos Verstappen is plain "verstappen"; a fan typing
+    // "Verstappen" still means Max.
+    expect(findDriver(MODEL_DATA, "Verstappen")?.id).toBe("max_verstappen");
+    expect(findDriver(MODEL_DATA, "Jos Verstappen")?.id).toBe("verstappen");
   });
   it("does not invent a match for a made-up driver", () => {
     expect(findDriver(MODEL_DATA, "Lars Vandersteen")).toBeNull();

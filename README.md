@@ -5,11 +5,12 @@ If every Formula 1 driver in history drove the same car, who would be fastest?
 F1 results mix two things: how good the driver is and how good the car is.
 This project separates them with a statistical model built on teammate
 comparisons (teammates share the same car), linked across eras through shared
-teammates. It then simulates races where every car is identical, and a website
-lets you race drivers from any era against each other.
+teammates. It then simulates races where every car is identical, a website
+lets you race drivers from any era against each other, and an assistant
+answers questions using only the model's numbers.
 
 **Live site:** not deployed yet (the link goes here once the repository is
-connected to Vercel).
+connected to Vercel; steps in [Deploying](#deploying)).
 
 ![The fantasy race page](docs/screenshots/race.png)
 
@@ -19,18 +20,247 @@ connected to Vercel).
 
 **In one paragraph:** a Bayesian hierarchical model, written in PyTorch and
 fitted on the GPU, estimates a skill for every driver in every season since
-1950, with uncertainty. Fitted on results up to 2023 and tested on 2024 and
-2025 without refitting, it calls the right teammate in 67.0% of 376 race
-comparisons, against 62.0% for the best simple baseline (though in 2024 alone
-it only matched the baseline). A GPU simulation then races everyone in
-identical cars, and a static website lets you do the same in your browser.
+1950, with uncertainty checked by posterior sampling. In a rolling backtest
+(each season 2010 to 2025 predicted from earlier seasons only) it calls the
+right teammate in 59.6% of 2,728 race comparisons, only slightly better than
+the best simple rule (59.3%); its real advantage is comparing drivers who were
+never teammates (2025: 65.9% against 57.8%). Everything below, including where
+the model falls short, is printed by a script in this repository.
 
-| Phase | What | Status |
+## Contents
+
+- [How the model works](#how-the-model-works)
+- [Results](#results): backtest, 2024 and 2025 test, calibration, top 20, sensitivity
+- [The simulation](#the-simulation)
+- [The Pit Wall assistant](#the-pit-wall-assistant)
+- [Weaknesses](#weaknesses)
+- [Data](#data)
+- [How to run it](#how-to-run-it) and [Deploying](#deploying)
+
+## How the model works
+
+- Every driver gets a skill number for every season they raced, measured in
+  percent of lap time: +0.5 means half a percent quicker than an average
+  newcomer of today in the same car (about 0.45 seconds a lap).
+- The model only ever compares teammates, so the car cancels out. For each
+  pair in each race it looks at who finished ahead, the qualifying lap time
+  gap (from 1994) and the race pace gap (from 2018).
+- Races that ended with a car failure are left out, so breakdowns never count
+  against a driver.
+- It is a Bayesian hierarchical model: drivers are assumed to come from one
+  population, so a driver with three races is pulled towards average, and
+  each season's skill is tied to the season before.
+- It is fitted on the GPU in about 15 seconds. Its uncertainty was first
+  worked out with a Laplace approximation and then checked with posterior
+  sampling (NUTS): the sampled uncertainty is 1.04 times as wide, and the
+  site uses the sampled version. Drivers with few races, few teammates or
+  from older eras get wider ranges.
+
+The code is [model.py](model.py). The reasoning is in
+[docs/DECISIONS.md](docs/DECISIONS.md) (numbers 15 to 20, and 26 to 36 for
+the second round of work). [docs/INTERVIEW_GUIDE.md](docs/INTERVIEW_GUIDE.md)
+explains it in plain English.
+
+## Results
+
+### Rolling backtest, 2010 to 2025
+
+For every season, the model was fitted on all earlier seasons only and asked
+which teammate would finish ahead (`backtest.py`).
+
+![Backtest chart](docs/backtest.png)
+
+| All 16 seasons pooled | Race (2,728 comparisons) | Qualifying (3,407) |
 |---|---|---|
-| 1 | Data: results since 1950, lap times since 2018, circuit outlines | done |
-| 2 | The model: driver skill separated from car performance, validated on 2024 and 2025 | done |
-| 3 | The simulation: equal car races on the GPU | done |
-| 4 | The website (Next.js, free on Vercel) | built, waiting to be deployed |
+| **Model** | **59.6%** | **61.3%** |
+| Last season's head to head repeats, otherwise more career points | 59.3% | 59.7% |
+| More career points | 57.9% | 57.5% |
+
+Season by season the model beat the stronger baseline in 8 seasons, tied in
+1 and lost in 7. It does best when many drivers change teams or are new,
+because it can compare drivers who were never teammates: in 2025 it scored
+65.9% against 57.8%. In 2022 it scored 54.4% against 62.1%.
+
+Three optional additions were each tested this way and kept only if they did
+not make the predictions worse (judged by log loss, which tests the
+probabilities, not just the pick). None passed:
+
+| Version | Race accuracy | Race log loss (lower is better) |
+|---|---|---|
+| **Base model (used)** | 59.6% | **0.6765** |
+| Leave out race results arranged by documented team orders | 59.6% | 0.6777 |
+| Assume drivers with short careers were weaker (weak-teammate correction) | 60.5% | 0.6812 |
+| Separate wet weather skill in the main model | 59.2% | 0.6788 |
+
+### The 2024 and 2025 test
+
+Fitted on results up to the end of 2023, then predicting 2024 and 2025
+without refitting (`validate_model.py`).
+
+| | Comparisons | Model | More career points | Last season repeats, else career points |
+|---|---|---|---|---|
+| 2024 race | 191 | 65.4% | 66.0% | 66.0% |
+| 2025 race | 185 | **68.6%** | 57.8% | 57.8% |
+| Both, race | 376 | **67.0%** | 62.0% | 62.0% |
+| Both, qualifying | 472 | **70.1%** | 65.0% | 65.0% |
+
+Finishing positions predicted from 2023 information only (average miss in
+places): 3.15 in 2024 against 3.48 for the car alone and 3.34 for the 2023
+standings; 4.41 in 2025, worse than the 2024 standings (3.61), because the
+model was still using 2023 cars.
+
+### Calibration: are the probabilities honest?
+
+The first version looked too cautious on 2024 and 2025 (favourites given 80%
+or more won 39 of 39). To fix it properly, one "temperature" that scales every
+probability was learned from the backtest's 2010 to 2023 predictions. It came
+out at **0.45**: across those seasons the model was too *confident*, not too
+cautious. Applied to 2024 and 2025, as the rule set in advance required, it
+made things worse:
+
+| 2024 and 2025 races | Brier score | Log loss |
+|---|---|---|
+| Before | **0.2045** | **0.5939** |
+| After (temperature 0.45) | 0.2169 | 0.6250 |
+| A coin flip | 0.2500 | 0.6931 |
+
+The reason is drift: the best temperature was 0.25 for 2010 to 2015, 0.40 for
+2016 to 2019 and about 1.0 since 2018. The site uses 0.55, fitted on all
+seasons after the test (the same rule as refitting the model on all data), so
+its probabilities for modern drivers are probably too cautious. Posterior
+sampling suggests why the model was over-confident: the full posterior of the
+race slope is 2.03 to 2.32, while the single best fit used for predictions is
+2.91. Details in [docs/DECISIONS.md](docs/DECISIONS.md), numbers 27 and 32.
+
+### The top 20
+
+Peak skill among drivers with at least 30 starts (`fit_ratings.py`,
+`compare_ratings.py`). "Could rank" is the middle 90% of plausible ranks from
+1,000 posterior samples.
+
+| # | Driver | Peak | Skill (90% range) | Could rank | Before this round |
+|---|---|---|---|---|---|
+| 1 | Michael Schumacher | 1994 to 1996 | +1.41 (+1.08 to +1.75) | 1 to 2 | 1 to 2 |
+| 2 | Juan Manuel Fangio | 1956 to 1958 | +0.94 (+0.48 to +1.40) | 1 to 21 | 2 to 37 |
+| 3 | Ayrton Senna | 1991 to 1993 | +0.92 (+0.58 to +1.26) | 2 to 17 | 2 to 27 |
+| 4 | Jackie Stewart | 1970 to 1972 | +0.92 (+0.50 to +1.34) | 2 to 21 | 2 to 32 |
+| 5 | Jim Clark | 1966 to 1968 | +0.91 (+0.44 to +1.39) | 2 to 31 | 2 to 40 |
+| 6 | Jochen Rindt | 1968 to 1970 | +0.90 (+0.47 to +1.32) | 2 to 25 | 2 to 35 |
+| 7 | Max Verstappen | 2023 to 2025 | +0.88 (+0.63 to +1.14) | 2 to 41 | 2 to 44 |
+| 8 | Fernando Alonso | 2010 to 2012 | +0.82 (+0.55 to +1.08) | 4 to 50 | 2 to 54 |
+| 9 | Heinz-Harald Frentzen | 1994 to 1996 | +0.82 (+0.51 to +1.12) | 4 to 36 | 3 to 42 |
+| 10 | Stirling Moss | 1959 to 1961 | +0.78 (+0.36 to +1.20) | 3 to 39 | 3 to 61 |
+| 11 | Mika Häkkinen | 1994 to 1996 | +0.72 (+0.41 to +1.04) | 7 to 57 | 5 to 66 |
+| 12 | Alberto Ascari | 1952 to 1954 | +0.72 (+0.29 to +1.15) | 4 to 54 | 4 to 74 |
+| 13 | Graham Hill | 1963 to 1965 | +0.71 (+0.33 to +1.09) | 5 to 49 | 5 to 70 |
+| 14 | John Surtees | 1964 to 1966 | +0.69 (+0.30 to +1.09) | 5 to 58 | 5 to 81 |
+| 15 | Alain Prost | 1984 to 1986 | +0.69 (+0.33 to +1.05) | 6 to 49 | 5 to 79 |
+| 16 | Jenson Button | 2004 to 2006 | +0.67 (+0.38 to +0.95) | 8 to 72 | 6 to 95 |
+| 17 | Nigel Mansell | 1987 to 1989 | +0.66 (+0.37 to +0.96) | 8 to 52 | 8 to 74 |
+| 18 | Felipe Massa | 2007 to 2009 | +0.65 (+0.38 to +0.92) | 11 to 79 | 7 to 97 |
+| 19 | Lewis Hamilton | 2015 to 2017 | +0.65 (+0.31 to +0.98) | 7 to 90 | 5 to 134 |
+| 20 | Dan Gurney | 1963 to 1965 | +0.64 (+0.23 to +1.04) | 7 to 68 | 7 to 97 |
+
+Read the "could rank" column before the first. Apart from Schumacher, the
+model cannot honestly separate these drivers. The best estimates did not
+change in this round; the rank ranges narrowed because ranks are now counted
+among drivers with at least 30 starts. Before, drivers with a handful of
+races, whose ratings are mostly guesswork, landed above mid-table drivers by
+chance in many plausible versions, which is why Hamilton's range reached 134.
+99 drivers moved more than 10 places for that reason; none of them is ranked
+higher than 115th. Lewis Hamilton at 19th will surprise many people: his
+rating rests on close battles with strong teammates (Rosberg, Bottas,
+Russell), and the "Why this rating" panel on his driver page shows exactly
+which ones.
+
+### Which rankings depend on an assumption?
+
+How much the general level of drivers changed between decades cannot be
+measured, so `sensitivity.py` refits the model under three assumptions (0.03%,
+0.10% and 0.25% per decade). Solid (rank moves 3 places or fewer): Schumacher,
+Fangio, Senna, Stewart, Alonso, Frentzen, Moss, Häkkinen, Prost, Mansell.
+Depends on the assumption: Clark (2nd to 6th), Rindt, Verstappen (3rd to
+7th), Ascari, Graham Hill, Surtees, Button, Massa, Hamilton (14th to 27th),
+Gurney. The full table is on the site's About page.
+
+## The simulation
+
+Every car is identical. Each driver's lap times come from their skill, a
+form for the day, a small lap to lap noise and occasional mistakes; a car
+that catches another passes with a probability that depends on its pace
+advantage and the circuit (overtaking difficulty measured from real races
+since 2018: Monaco hardest, Las Vegas easiest); about half of races have a
+safety car (the measured rate). The randomness is calibrated so drivers beat
+each other as often as the model says: for a 0.4% skill gap, model 76.2%,
+simulation 75.8%. 20,000 races run in under a second on the GPU, and the
+browser runs the same race from the same settings.
+
+The first version stuck to the starting grid. Measured on 1,000 races with
+today's grid at Interlagos (`check_simulator.py`):
+
+| | Old, 15 laps | Old, 71 laps | New, 71 laps |
+|---|---|---|---|
+| Grid vs finish rank correlation (real F1 2018 to 2025: 0.742) | 0.931 | 0.913 | 0.653 |
+| Average places moved | 1.90 | 2.17 | 3.87 |
+| Top rated driver wins from pole / 5th / 15th | 55% / 15% / 4% | 41% / 22% / 16% | 46% / 19% / 15% |
+| Fastest lap by a top 3 rated driver | 52.1% | 52.1% | 51.7% |
+| Median gap, winner to 2nd / to 10th | 2.6s / 14.4s | 9.4s / 46.6s | 6.4s / 37.1s |
+
+The fastest lap did not improve: on the day, the calibrated form (0.40% of a
+lap) outweighs the gaps between today's top drivers. With the reworked
+simulator, the equal car champion changed in only 2 of 77 seasons.
+
+## The Pit Wall assistant
+
+A chat panel on every page answers questions such as "Would Senna beat
+Verstappen at Monaco in equal cars?". It uses Claude (Anthropic's API) with
+seven tools that read the model's numbers, and it is not allowed to invent
+any: every number in an answer is checked against the tool results, an answer
+with an untraceable number is sent back for one rewrite, and anything still
+untraceable is flagged to the reader. Answers state the uncertainty and that
+they are model estimates. With no API key the panel says it is unavailable;
+rate limits stop a public link from running up a bill.
+
+**Evaluation score: not measured yet.** The evaluation set
+([web/eval/questions.json](web/eval/questions.json): 15 factual questions
+with known answers, 30 comparisons, 5 trick questions that must be declined)
+and its scoring script are in place, and the free checks pass
+(`npm run eval -- --dry`: every expected tool call works and every known
+fact matches the data). The live evaluation calls the API, so it needs a key,
+which was not available on the development machine. Run it with:
+
+```
+cd web
+$env:ANTHROPIC_API_KEY = "your key"   # PowerShell; the key never goes in the code
+npm run eval
+```
+
+It prints four scores (right tool, expected numbers quoted, no invented
+numbers, correct refusals) and writes `web/eval/results.json`. The score
+should be added here once measured.
+
+## Weaknesses
+
+- **Cross-era comparisons cannot be validated.** There is no test for Senna
+  against Verstappen; only the modern end is checked, and the sensitivity
+  table shows which rankings rest on an assumption.
+- **Over many seasons the model is only slightly better than a simple rule**
+  (59.6% against 59.3%), and lost to it in 7 of 16 seasons.
+- **Calibration drifts over time**: probabilities for modern drivers are
+  probably too cautious.
+- **Teammate strength and team orders**: a driver measured only against weak
+  teammates, or against a number two, can be flattered. Two fixes were
+  tested and neither helped (Heinz-Harald Frentzen at 9th is probably an
+  example).
+- **The rating is a driver's best three seasons**, which flatters everyone a
+  little and long careers most.
+- **The race slope used for predictions (2.91) is steeper than its posterior
+  (2.03 to 2.32)**: the single best fit is not typical of the plausible ones.
+- **Wet weather ratings rest on 54 tagged races** (37 from a hand-made list),
+  so most drivers' wet adjustments barely move from zero.
+- **The simulator** leaves out tyres, pit stops and weather, and the fastest
+  lap goes to a top 3 driver only half the time.
+- **The assistant's evaluation has not been run** (see above).
 
 ## Data
 
@@ -57,186 +287,51 @@ What the cleaned data holds (downloaded 2026-10-09, printed by
 | **All** | **77** | **1,165** | **789** | **25,761** | | | **15,843** | **8,381** |
 
 - 643 of the 655 drivers who ever had a teammate are linked to each other
-  through chains of shared teammates. That link is what allows drivers from
-  different eras to be compared.
+  through chains of shared teammates.
 - Lap times: 163,011 clean racing laps from 183 races since 2018.
-- Track outlines: 33 circuits.
-
-Known weaknesses of the data (details in
-[docs/DECISIONS.md](docs/DECISIONS.md), number 14):
-
+- Track outlines: 33 circuits. Wet races: 54 (`wet_races.py`).
 - From 2023 the source no longer says why a car retired, so those races are
-  left out of teammate comparisons. A driver's own crashes therefore stop
-  counting against them from 2023, which includes both test seasons. (This
-  is why the 2020s row shows only 3% for each cause.)
-- Before 1990 cars broke down in more than a third of starts, so well under
-  half of teammate pairs give a usable race result.
-- Before 1970 a "constructor" often means a car maker that sold to private
-  owners, so some "teammates" did not have equal cars.
-- "Collision" counts as a driver error even when the other driver caused it.
-- Qualifying lap times only exist from 1994, and are patchy from 1996 to 2002.
+  left out of teammate comparisons, and a driver's own crashes stop counting
+  against them. Before 1970 a "constructor" often means a car maker that sold
+  to private owners. Qualifying lap times only exist from 1994. Details in
+  [docs/DECISIONS.md](docs/DECISIONS.md), number 14.
 
 ## How to run it
 
 ```
 .venv\Scripts\python.exe check_gpu.py           # once: proves PyTorch trains on the GPU
-.venv\Scripts\python.exe -m pytest              # the tests
+.venv\Scripts\python.exe -m pytest              # the Python tests (62)
 
 .venv\Scripts\python.exe download_history.py    # 1. results since 1950 (about 15 minutes)
 .venv\Scripts\python.exe clean_history.py       # 2. results and teammate pairs
 .venv\Scripts\python.exe download_laps.py       # 3. lap times since 2018 (several hours)
 .venv\Scripts\python.exe clean_laps.py          # 4. pace and consistency per race
 .venv\Scripts\python.exe download_circuits.py   # 5. track outlines (about 10 minutes)
+.venv\Scripts\python.exe wet_races.py           # 6. tag wet races
 
-.venv\Scripts\python.exe validate_model.py      # 6. fit to 2023, test on 2024 and 2025 (1 minute)
-.venv\Scripts\python.exe fit_ratings.py         # 7. final ratings from all data (30 seconds)
-.venv\Scripts\python.exe export_web.py          # 8. simulate, write the website's data (1 minute)
-```
+.venv\Scripts\python.exe backtest.py            # 7. rolling backtest 2010 to 2025 (about 40 minutes)
+.venv\Scripts\python.exe validate_model.py      # 8. fit to 2023, test on 2024 and 2025 (1 minute)
+.venv\Scripts\python.exe sample_posterior.py    # 9. posterior samples with NUTS (about 4 minutes)
+.venv\Scripts\python.exe fit_ratings.py         # 10. final ratings from all data
+.venv\Scripts\python.exe explain_ratings.py     # 11. "Why this rating" panels
+.venv\Scripts\python.exe sensitivity.py         # 12. top 20 under three era assumptions
+.venv\Scripts\python.exe export_web.py          # 13. simulate, write the website's data
+.venv\Scripts\python.exe check_simulator.py     # 14. simulator statistics
 
-The steps of each phase are listed in [docs/MAP.md](docs/MAP.md), in the order
-they run. Each decision and its reason is in
-[docs/DECISIONS.md](docs/DECISIONS.md).
-
-## How the model works
-
-- Every driver gets a skill number for every season they raced, measured in
-  percent of lap time: +0.5 means half a percent quicker than an average
-  newcomer of today in the same car (about 0.45 seconds a lap).
-- The model only ever compares teammates, so the car cancels out. For each
-  pair in each race it looks at who finished ahead, the qualifying lap time
-  gap (from 1994) and the race pace gap (from 2018).
-- Races that ended with a car failure are left out, so breakdowns never count
-  against a driver.
-- It is a Bayesian hierarchical model: drivers are assumed to come from one
-  population, so a driver with three races is pulled towards average, and
-  each season's skill is tied to the season before.
-- It is fitted on the GPU in about 15 seconds. The uncertainty of every
-  rating comes from how sharply the fit worsens when that rating is moved
-  (a Laplace approximation). Drivers with few races, few teammates or from
-  older eras get wider ranges: a typical 1950s peak rating is uncertain by
-  0.30%, a 2020s one by 0.16%.
-
-The code is [model.py](model.py). The reasoning is in
-[docs/DECISIONS.md](docs/DECISIONS.md), numbers 15 to 20.
-
-## Results
-
-Everything below is printed by `validate_model.py`. The model was fitted on
-results up to the end of 2023 and then predicted 2024 and 2025 without being
-refitted. Its two settings were chosen on 2022 and 2023 only.
-
-![Validation chart](docs/validation.png)
-
-**Which teammate is ahead?** (share called correctly)
-
-| | Comparisons | Model | More career points | Last season repeats, else career points |
-|---|---|---|---|---|
-| 2024 race | 191 | 65.4% | 66.0% | 66.0% |
-| 2025 race | 185 | **68.6%** | 57.8% | 57.8% |
-| Both, race | 376 | **67.0%** | 62.0% | 62.0% |
-| 2024 qualifying | 236 | 68.6% | 68.6% | 68.6% |
-| 2025 qualifying | 236 | **71.6%** | 61.4% | 61.4% |
-| Both, qualifying | 472 | **70.1%** | 65.0% | 65.0% |
-
-- In 2024 the model only matched the baselines. Nearly every team kept its
-  2023 drivers, so "last season repeats" was hard to beat.
-- In 2025 many drivers changed team or were new. The baselines fell and the
-  model did not. What it adds is comparing drivers who were never teammates.
-- On the 223 race comparisons where the pair were also teammates the season
-  before, the model (66.4%) is no better than "last season repeats" (66.8%).
-- One season is about 190 race comparisons, so a season's accuracy is only
-  good to about plus or minus 7 points.
-
-**Are the probabilities honest?** (race, 2024 and 2025 together)
-
-| Model said the favourite had | Comparisons | Favourite really won |
-|---|---|---|
-| 50 to 60% (average 55.0%) | 145 | 55.2% |
-| 60 to 70% (average 66.3%) | 119 | 61.3% |
-| 70 to 80% (average 74.1%) | 73 | 82.2% |
-| 80% or more (average 81.6%) | 39 | 100.0% |
-
-The model is too cautious about clear favourites.
-
-**Finishing positions**, predicted using only information up to 2023
-(average miss in places among the cars that finished):
-
-| | Model (car + driver) | Car only | Last season's standings |
-|---|---|---|---|
-| 2024 | **3.15** | 3.48 | 3.34 |
-| 2025 | 4.41 | 4.64 | **3.61** |
-
-Adding driver skill to the car helps in both years. But for 2025 the model is
-worse than last season's standings, because it is still using 2023 cars while
-that baseline has seen 2024.
-
-**Weaknesses of the model**
-
-- Cross-era comparisons cannot be validated. There is no test for Senna
-  against Verstappen; only the modern end is checked.
-- How much the level of F1 drivers changed between decades is an assumption
-  (0.1% per decade), not a measurement. It directly sets how wide the ranges
-  of older drivers are.
-- A driver is only ever measured against their teammates. A driver whose
-  teammates were all weak, or who was a clear team number one or two, can be
-  misjudged. Heinz-Harald Frentzen ranking 9th of all time is probably an
-  example of this.
-- The rating is a driver's best three seasons in a row, which flatters
-  everyone slightly and long careers most.
-- The uncertainty ranges are somewhat too narrow by construction (see
-  DECISIONS.md, number 15).
-
-## What the model says
-
-The top ten by peak skill among drivers with at least 50 starts, printed by
-`fit_ratings.py`. Skill is percent of lap time quicker than an average
-newcomer of today in the same car. "Could rank" is the middle 90% of 4,000
-plausible versions of the ratings, among all 655 rated drivers.
-
-| # | Driver | Peak | Skill | 90% range | Could rank |
-|---|---|---|---|---|---|
-| 1 | Michael Schumacher | 1994 to 1996 | +1.41% | +1.10 to +1.72 | 1 to 2 |
-| 2 | Juan Manuel Fangio | 1956 to 1958 | +0.94% | +0.50 to +1.38 | 2 to 37 |
-| 3 | Ayrton Senna | 1991 to 1993 | +0.92% | +0.59 to +1.25 | 2 to 27 |
-| 4 | Jackie Stewart | 1970 to 1972 | +0.92% | +0.53 to +1.31 | 2 to 32 |
-| 5 | Jim Clark | 1966 to 1968 | +0.91% | +0.48 to +1.35 | 2 to 40 |
-| 6 | Jochen Rindt | 1968 to 1970 | +0.90% | +0.50 to +1.29 | 2 to 35 |
-| 7 | Max Verstappen | 2023 to 2025 | +0.88% | +0.63 to +1.13 | 2 to 44 |
-| 8 | Fernando Alonso | 2010 to 2012 | +0.82% | +0.53 to +1.10 | 2 to 54 |
-| 9 | Heinz-Harald Frentzen | 1994 to 1996 | +0.82% | +0.52 to +1.11 | 3 to 42 |
-| 10 | Stirling Moss | 1959 to 1961 | +0.78% | +0.38 to +1.18 | 3 to 61 |
-
-Read the last column before the first. Apart from Schumacher, the model
-cannot honestly separate these drivers: places 2 to 10 are within 0.16% of
-each other, and each range is several times wider than that. Lewis Hamilton
-is 18th on this list (+0.65%), which will surprise many people; his range
-(+0.34 to +0.96) overlaps everyone from 2nd down.
-
-## The simulation and the website
-
-- `simulate.py` races identical cars lap by lap on the GPU: 20,000 races of
-  60 laps with 20 cars in under a second. Its randomness is calibrated so
-  that drivers beat each other as often as the validated model says (for a
-  0.4% skill gap: model 76.2%, simulation 76.2%).
-- Overtaking difficulty per circuit is measured from real races since 2018.
-  Monaco comes out hardest and Las Vegas easiest.
-- The website (`web/`) is a static Next.js site with six pages: a fantasy
-  race with an animated track and live timing, head to head, the all time
-  ranking, driver cards, every season replayed in equal cars, and an about
-  page with these validation results. The race runs in your browser using
-  the same settings as the GPU version.
-
-To run the website on your own machine:
-
-```
 cd web
 npm install
-npm run dev        # then open http://localhost:3000
+npm test                                         # the website tests (31)
+npm run dev                                      # the site at http://localhost:3000
 ```
 
-What the simulation leaves out: tyres, pit stops, safety cars, weather and
-the start. It is a way to play with the ratings, not a prediction of real
-races.
+The order and how the files connect are in [docs/MAP.md](docs/MAP.md).
+
+## Deploying
+
+The site is a Next.js app in `web/`, hosted free on Vercel. Every page is
+pre-built; only the assistant's `/api/chat` endpoint runs on the server. The
+Anthropic API key is set in Vercel's settings, never in the code. Step by step
+instructions are in [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## The earlier project
 

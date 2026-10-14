@@ -9,11 +9,14 @@ repository; if you re-run them and a number changes, trust the script.
 "F1 results mix up the driver and the car. I built a model that separates
 them using teammates, because teammates share a car. It is a Bayesian
 hierarchical model I wrote in PyTorch: every driver gets a skill for every
-season since 1950, with an uncertainty. I trained it on data up to 2023 and
-tested it on 2024 and 2025 without refitting. It calls the right teammate 67%
-of the time against 62% for the best simple baseline, though in 2024 alone it
-only matched the baseline. Then I built a GPU simulation of equal car races
-and a website where you can race any drivers from any era."
+season since 1950, with an uncertainty that I checked with posterior
+sampling. In a rolling backtest, predicting each season from 2010 to 2025
+from earlier seasons only, it is only slightly better than the best simple
+rule overall, 59.6% against 59.3%, but much better when drivers change teams,
+because it can compare drivers who were never teammates. Then I built a GPU
+simulation of equal car races, a website, and an assistant that answers
+questions using only the model's numbers, with a checker that catches any
+number it invents."
 
 ## The model in five steps
 
@@ -58,6 +61,13 @@ is the covariance of all the skills. This is the Laplace approximation.
 Intuition: if the fit gets much worse when you nudge a driver's skill, that
 skill is known precisely. If it barely changes, the skill is uncertain.
 
+**6. Checking the uncertainty.** `sample_posterior.py` then draws 1,000
+plausible versions of every unknown with NUTS (a Hamiltonian Monte Carlo
+sampler, via Pyro), using the same badness function, and the site uses those
+samples. Result: skill ranges 1.04 times as wide as Laplace said, so Laplace
+was close. But the race slope's posterior (2.03 to 2.32) is well below the
+single best fit (2.91), which helps explain why the model was over-confident.
+
 ## Three functions to know cold
 
 1. **`log_likelihood` in `model.py`.** Be able to say why only the gap
@@ -70,6 +80,16 @@ skill is known precisely. If it barely changes, the skill is uncertain.
    be rated as bad drivers.
 
 ## How it was validated
+
+**The rolling backtest (the main test).** For each season from 2010 to 2025,
+fit on all earlier seasons only and predict that season: 2,728 race
+comparisons. Model 59.6%, "last season repeats, else career points" 59.3%,
+"more career points" 57.9%. The model beat the stronger baseline in 8 of 16
+seasons, tied 1, lost 7. Three additions (team orders, a weak-teammate
+correction, a wet adjustment) were tested this way; none improved log loss,
+so none is used.
+
+**The single 2024 and 2025 test.**
 
 - Fitted on results up to the end of 2023. Predicted 2024 and 2025 without
   refitting. The two settings (0.3 and 0.18) were chosen by fitting to 2021
@@ -88,8 +108,10 @@ skill is known precisely. If it barely changes, the skill is uncertain.
 - Finishing positions from 2023 information only: average miss 3.15 places in
   2024 (car only: 3.48). In 2025 it was 4.41, worse than using the 2024
   standings (3.61), because the model was still using 2023 cars.
-- Calibration: when the model said 80% or more, the favourite won 39 of 39.
-  The model is under-confident at the top.
+- Calibration: a temperature learned on 2010 to 2023 (0.45) showed the model
+  was over-confident there, but applied to 2024 and 2025 it made the Brier
+  score worse (0.2045 to 0.2169). The right temperature drifts over time:
+  0.25 for 2010 to 2015, about 1.0 since 2018. Reported as it is.
 
 ## The ten questions you are most likely to be asked
 
@@ -105,8 +127,8 @@ taken out.
 Through chains of shared teammates. If A beat B and B beat C, that says
 something about A against C. 643 of the 655 drivers who ever had a teammate
 are in one connected group. The uncertainty grows along the chain, and the
-covariance matrix carries that: the range for Senna against Verstappen is 26%
-to 78%.
+covariance matrix carries that: the model gives Senna a 56% chance against
+Max Verstappen, with a range of 39% to 72%.
 
 **3. Why is it Bayesian? What does the prior buy you?**
 Three things. It handles small samples: a driver with five races is pulled
@@ -114,12 +136,16 @@ towards average. It ties seasons together, so one freak season does not
 define a career. And it gives a principled uncertainty for every rating,
 which a plain rating system like Elo does not.
 
-**4. Why a Laplace approximation and not MCMC?**
-It is fast (seconds), it fits in 150 lines I can explain, and for a model
-that is close to bell shaped it is a good approximation. The cost: it assumes
-bell shaped uncertainty and treats the five learned scale numbers as exactly
-known, so the ranges are somewhat too narrow. With more time I would run MCMC
-(for example NUTS) on the same model and compare the ranges.
+**4. Why a Laplace approximation, and did you check it?**
+It is fast (seconds) and fits in 150 lines I can explain. Then I checked it
+with NUTS on the same model, using the Laplace answer to precondition the
+sampler (it samples in coordinates where Laplace would be a round bell curve),
+which took about 4 minutes on the GPU. The skill ranges came out 1.04 times
+as wide, so Laplace was nearly right for the skills. The sampler found one
+real difference: the race slope's posterior is 2.03 to 2.32, not the 2.91 of
+the single best fit. In high dimensions the single most likely point is not
+typical of the plausible ones. That steeper slope is one reason the model's
+predictions were over-confident.
 
 **5. Your model lost to the baseline in 2024. Is it any good?**
 In 2024 almost every team kept its 2023 drivers, so "last season repeats" was
@@ -128,7 +154,9 @@ difference of one comparison in 191). In 2025 drivers moved and rookies
 arrived; the baselines fell to 58% and the model stayed at 69%. The model's
 value is exactly the case the baselines cannot handle: pairs with no shared
 history. I would also say that 190 comparisons per season gives a margin of
-about plus or minus 7 points, so I do not over-read either year.
+about plus or minus 7 points, so I do not over-read either year. That is why
+I added the rolling backtest over 16 seasons: overall the model is only
+slightly better than the best simple rule, and I say so.
 
 **6. How do you know there is no data leakage?**
 The split is by time. `build_comparisons` filters on `Year <= last_year`, and
@@ -154,6 +182,9 @@ tested. (b) How much the level of drivers changed between decades is an
 assumption, 0.1% per decade, and it sets how wide old drivers' ranges are.
 (c) A driver is only measured against teammates, so team orders or a run of
 weak teammates distort the rating: Frentzen coming out 9th is probably that.
+I tested two fixes (dropping races under documented team orders, and assuming
+short-career teammates were weaker) and neither improved the backtest, so I
+kept neither and kept the weakness in the README.
 (d) From 2023 the data no longer says why a car retired, so crashes stop
 counting against current drivers. (e) Before 1970 some "teammates" were
 private owners of the same make of car.
@@ -166,14 +197,16 @@ because each lap updates one table of races by drivers. The only loop over
 cars is the overtaking rule, which must go front to back.
 
 **10. How do you know the simulation is realistic?**
-I do not claim it is a realistic race: it has no tyres, pit stops or safety
-cars. What I did is calibrate it to the validated model. I tuned one number,
-the day to day form, until simulated drivers beat each other as often as the
-model says real teammates do: for a 0.4% skill gap the model says 76.2% and
-the simulation gives 76.2%. So its randomness is the right size, even though
-its mechanics are simple. The overtaking difficulty per circuit is measured
-from real races since 2018, and Monaco comes out hardest, which is a good
-sanity check.
+I do not claim it is a realistic race: it has no tyres or pit stops. I
+calibrated it to the fitted model: one number, the day to day form, was tuned
+until simulated drivers beat each other as often as the model says (0.4% gap:
+model 76.2%, simulation 75.8%). Other parts are measured: overtaking
+difficulty per circuit, the safety car rate (56% of races), and how linked
+qualifying form is to race form (0.32). The first version stuck to the grid
+(rank correlation 0.93, real F1 0.74), so I made passing depend on pace for
+the day, gave qualifying its own form and added safety cars: now 0.65, and I
+test those statistics automatically. One thing did not improve: the fastest
+lap goes to a top 3 driver only half the time, and I report that.
 
 ## Questions you might get as follow-ups
 
@@ -204,9 +237,76 @@ sanity check.
 | Races / drivers / teammate pairs | 1,165 / 789 / 15,843 |
 | Drivers linked through teammates | 643 of 655 |
 | Driver-seasons estimated | 2,515 |
+| Rolling backtest, 2010 to 2025 | 59.6% (best baseline 59.3%), 2,728 comparisons |
 | Teammate race prediction, 2024 and 2025 | 67.0% (baseline 62.0%), 376 comparisons |
 | Teammate qualifying prediction | 70.1% (baseline 65.0%), 472 comparisons |
 | Typical uncertainty of a peak rating | 0.30% in the 1950s, 0.16% in the 2020s |
+| NUTS check | ranges 1.04 times Laplace; race slope 2.03 to 2.32 against 2.91 |
+| Calibration temperature | 0.45 (2010 to 2023), 0.55 (all seasons, used on the site) |
 | Fit time on the GPU | about 15 seconds |
 | Simulation speed | 20,000 races in under a second |
-| Tests | 48 |
+| Tests | 62 Python, 31 website |
+
+## The Pit Wall assistant: how it avoids made-up numbers
+
+The assistant is a chat panel that answers fans in plain English using
+Claude (Anthropic's API). Three layers stop it inventing numbers:
+
+1. **Tools.** It gets seven tools that read the model's exported numbers
+   (`web/lib/tools.ts`), and the numbers come back ready to quote (whole
+   percentages, skill to two decimals), so it never needs to do sums.
+2. **Instructions.** The system prompt says every number must come from a
+   tool, every answer must give the range, and it must decline questions the
+   model cannot answer (made-up drivers, future seasons).
+3. **A checker** (`web/lib/numbers.ts`). After the answer is written, every
+   number in it is matched against the tool results and the question,
+   allowing for rounding. An untraceable number sends the answer back once
+   with the exact numbers named; anything still untraceable is shown to the
+   reader with a warning. Instructions can be ignored; the checker cannot.
+
+**Evaluation.** 50 questions in `web/eval/questions.json`: 15 factual
+questions with known answers (Senna's 41 wins, checked against the data), 30
+comparisons whose correct numbers come from the tools, and 5 trick questions
+that must be declined. `web/eval/run-eval.ts` scores four things: the right
+tool used, the expected numbers quoted, no untraceable numbers, correct
+refusals. The free "dry run" (every expected tool call works, every known
+fact matches) passes; the live score needs an API key (see the README).
+
+### Five questions you are likely to be asked about it
+
+**1. How do you stop the language model making up numbers?**
+I do not trust the prompt alone. The model only gets numbers through tools,
+and after it writes an answer, code extracts every number and checks each
+one can be traced to a tool result or the question, within rounding. If one
+cannot, the model is told which numbers failed and must rewrite once; if a
+number still fails, the reader sees a warning. So the guarantee comes from
+code, not from the model behaving.
+
+**2. Why tools instead of putting all the ratings in the prompt?**
+Three reasons. The data is large (655 drivers, 22,578 head to heads), so it
+would be slow and expensive to send every time. A tool returns exactly the
+numbers for the question, which makes tracing them simple. And some answers,
+like a race simulation, have to be computed, not looked up.
+
+**3. How did you evaluate it?**
+A fixed set of 50 questions in three groups, with automatic scoring of tool
+choice, number accuracy, invented numbers and refusals. Factual answers are
+checked against real records, comparison answers against what the tools
+return, and simulation answers against the assistant's own simulation run,
+because each simulation is random. The trick questions test the most
+important behaviour: saying "I don't know" for a driver who does not exist.
+
+**4. What stops someone running up a bill on a public site?**
+The API key lives only in Vercel's environment settings. Questions are
+capped per visitor (5 per 10 minutes, 20 a day) and for the whole site (100 a
+day), questions are limited to 500 characters, and each answer is limited in
+length and in the number of tool rounds. The rate limit is in server memory,
+so it is a brake, not a lock: the real backstop is a monthly spend limit in
+the Anthropic Console. With no key, the panel simply says it is unavailable.
+
+**5. What are its limits?**
+The checker confirms a number came from a tool, not that it was used
+correctly: the model could quote Senna's rating as Prost's. It cannot catch
+wrong words around right numbers. It only knows what the tools expose. And
+the live evaluation score has not been measured yet, because that needs a
+paid API key; until it is, I would not claim an accuracy figure for it.

@@ -1,7 +1,7 @@
 // app/layout.tsx
 //
 // What it does: the frame around every page: the page title, the navigation
-//   bar at the top and the footer at the bottom.
+//   bar at the top, the Pit Wall assistant button and the footer.
 // Which files use it: Next.js wraps every page in app/ with it automatically.
 
 import type { Metadata, Viewport } from "next";

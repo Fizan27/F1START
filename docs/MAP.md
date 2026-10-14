@@ -47,28 +47,56 @@ How the files connect, and the order things run in. Updated after every step.
  who was ahead in the race and in qualifying
 
 
+ 6. wet_races.py           tags 54 wet races (laps since 2018, a hand list before)
+        |
+        v
+ data/wet_races.parquet
+
+
  Phase 2: the model
  ------------------
 
- teammate_pairs.parquet + race_pace.parquet
+ teammate_pairs.parquet + race_pace.parquet (+ wet_races.parquet)
         |
         v
  model.py                  the model itself: skills per driver per season,
-        |                  with uncertainty. Used by the two scripts below.
+        |                  with uncertainty. Used by every script below.
         |
-        +--> 6. validate_model.py   fit up to 2023, predict 2024 and 2025,
-        |          |                compare with baselines
+        +--> 7. backtest.py        every season 2010 to 2025 predicted from earlier
+        |          |               seasons; tests the optional parts; fits the
+        |          |               calibration temperature
+        |          v
+        |    docs/backtest.png, web/public/data/backtest.json
+        |
+        +--> 8. validate_model.py  fit up to 2023, predict 2024 and 2025,
+        |          |               compare with baselines, calibration before/after
         |          v
         |    docs/validation.png, web/public/data/validation.json
         |
-        +--> 7. fit_ratings.py      fit on everything, for the final ratings
-                   |
+        +--> 9. sample_posterior.py  NUTS samples of every unknown (checks Laplace)
+        |          |
+        |          v
+        |    data/posterior_samples.pt
+        |
+        +--> 10. fit_ratings.py    fit on everything, for the final ratings
+        |          |               (peak ranges from the samples; wet rating
+        |          |               from a separate fit)
+        |          v
+        |    data/ratings.parquet            one row per driver
+        |    data/skill_by_season.parquet    the career curves
+        |    data/teammate_records.parquet   record against each teammate
+        |    data/car_strengths.parquet      each team's car, each season
+        |    data/peak_covariance.pt         rating uncertainty and peak samples
+        |
+        +--> 11. explain_ratings.py  which battles moved each rating, chain to today
+        |          v
+        |    web/public/data/explain.json
+        |
+        +--> 12. sensitivity.py    top 20 under three era assumptions
                    v
-             data/ratings.parquet            one row per driver
-             data/skill_by_season.parquet    the career curves
-             data/teammate_records.parquet   record against each teammate
-             data/car_strengths.parquet      each team's car, each season
-             data/peak_covariance.pt         uncertainty of the ratings
+             web/public/data/sensitivity.json
+
+ compare_ratings.py        old against new top 20, big movers, championship changes
 
 
  Phase 3: the simulation
@@ -77,15 +105,18 @@ How the files connect, and the order things run in. Updated after every step.
  simulate.py               equal car races, thousands at once on the GPU.
         |                  Run on its own it prints the calibration check.
         v
- 8. export_web.py          reads the five rating files, results and laps
+ 13. export_web.py         reads the rating files, results and laps
         |
         v
- web/public/data/drivers.json        every driver: rating, range, rank
- web/public/data/details.json        career curves, teammate records
+ web/public/data/drivers.json        every driver: rating, range, rank, wet
+ web/public/data/details.json        career curves, top teammate records
+ web/public/data/records.json        every teammate record (for the assistant)
  web/public/data/h2h.json            head to head chances
  web/public/data/championships.json  every season in equal cars
  web/public/data/settings.json       the simulation's numbers and each
                                      circuit's overtaking difficulty
+
+ 14. check_simulator.py    grid vs finish, wins from pole/5th/15th, fastest lap
 
 
  Phase 4: the website (everything in web/)
@@ -101,20 +132,43 @@ How the files connect, and the order things run in. Updated after every step.
         |                                the same rules and settings as simulate.py
         +--> app/head-to-head/page.tsx   any two drivers, chance and range
         +--> app/ranking/page.tsx        all time ranking with range bars
-        +--> app/drivers/page.tsx        driver card: career curve, teammates
+        +--> app/drivers/page.tsx        driver card: career curve, "Why this
+        |                                rating", wet rating, teammates
         +--> app/seasons/page.tsx        every season replayed in equal cars
-        +--> app/about/page.tsx          method, validation results, limits
+        +--> app/about/page.tsx          method, backtest, calibration, sensitivity
 
- app/layout.tsx            the frame round every page (uses components/Nav.tsx)
+ app/layout.tsx            the frame round every page (Nav and the Pit Wall button)
  app/globals.css           every style, in one file
  components/DriverPicker.tsx   the driver search box used on three pages
 
+
+ The Pit Wall assistant (also in web/)
+ -------------------------------------
+
+ components/PitWall.tsx    the chat panel, on every page
+        |  POST /api/chat
+        v
+ app/api/chat/route.ts     the only server code: reads ANTHROPIC_API_KEY
+        |
+        v
+ lib/chatHandler.ts        checks the key, the question and the rate limit
+        |                  (lib/rateLimit.ts)
+        v
+ lib/pitwall.ts            asks Claude, runs the tools it asks for, then checks
+        |                  every number in the answer (lib/numbers.ts)
+        v
+ lib/tools.ts              the seven tools, reading lib/modelData.ts
+                           (the JSON files above, bundled with the server)
+
+ eval/questions.json + eval/run-eval.ts   the 50 question evaluation
+ tests/*.test.ts                          the website tests (npm test)
+
  To see it:   cd web ; npm install ; npm run dev   then open localhost:3000
- To build it: cd web ; npm run build               the static site lands in web/out
+ To build it: cd web ; npm run build
 ```
 
-Run the five numbered scripts in that order. Each can be stopped and run
-again; anything already downloaded is skipped.
+Run the numbered scripts in that order. The download scripts can be stopped
+and run again; anything already downloaded is skipped.
 
 ## The three tables the model will learn from
 
@@ -133,6 +187,7 @@ Drivers are named by `DriverId` (for example `hamilton`) and teams by `TeamId`
 | Seasons | Job |
 |---|---|
 | 1950 to 2023 | the model is fitted on these; any tuning happens inside them |
+| 2010 to 2023 | also predicted one season at a time by the backtest, which fits the test temperature |
 | 2024, 2025 | test only: predicted without refitting |
 | 2026 (in progress) | not used for validation; joins the final refit for the website |
 
@@ -150,7 +205,14 @@ Drivers are named by `DriverId` (for example `hamilton`) and teams by `TeamId`
 | `validate_model.py` | Tests the model on 2024 and 2025 | via `model.py`, `data/results.parquet` | `docs/validation.png`, `web/public/data/validation.json` |
 | `fit_ratings.py` | Final ratings from all data | via `model.py`, `data/results.parquet` | five files in `data/` |
 | `simulate.py` | The equal car race simulation | nothing | nothing (used by others) |
-| `export_web.py` | Simulates and writes the website's data | rating files, results, laps | five JSON files in `web/public/data/` |
+| `export_web.py` | Simulates and writes the website's data | rating files, results, laps | six JSON files in `web/public/data/` |
+| `wet_races.py` | Tags wet races | `data/raw/`, `data/results.parquet` | `data/wet_races.parquet` |
+| `backtest.py` | Rolling backtest 2010 to 2025, model options, temperature | via `model.py` | `docs/backtest.png`, `web/public/data/backtest.json` |
+| `sample_posterior.py` | NUTS posterior samples (checks Laplace) | via `model.py` | `data/posterior_samples.pt` |
+| `explain_ratings.py` | Why each driver has their rating | via `model.py`, `fit_ratings.py` | `web/public/data/explain.json` |
+| `sensitivity.py` | Top 20 under three era assumptions | via `model.py` | `web/public/data/sensitivity.json` |
+| `check_simulator.py` | Simulator statistics (Interlagos test) | `web/public/data/` | a printed table |
+| `compare_ratings.py` | Old against new ratings and championships | saved copies in `data/` | a printed table |
 | `chart_style.py` | Shared chart colours | nothing | nothing |
 | `test_*.py` | Tests, one file per script | nothing | pass/fail |
 | `requirements.txt` | Python libraries | | |
@@ -158,7 +220,8 @@ Drivers are named by `DriverId` (for example `hamilton`) and teams by `TeamId`
 | `CLAUDE.md` | The rules for how this project is built | | |
 | `docs/DECISIONS.md` | Each significant decision and why | | |
 | `docs/INTERVIEW_GUIDE.md` | How to explain the project, and likely questions | | |
-| `web/` | The website (see the diagram above) | `web/public/data/` | `web/out/` when built |
+| `docs/DEPLOY.md` | Step by step Vercel deployment, including the API key | | |
+| `web/` | The website and the assistant (see the diagram above) | `web/public/data/` | the site |
 
 ## Folders
 

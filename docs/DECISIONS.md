@@ -392,7 +392,7 @@ Fitted up to 2023, predicting 2024 and 2025 without refitting
 What validation cannot show: whether cross-era comparisons are right. There is
 no test set for Senna against Verstappen. Only the modern end is checked.
 
-## 22. The simulation: what is measured, what is calibrated, what is assumed
+## 22. The simulation: what is measured, what is calibrated, what is assumed (reworked in 33)
 
 `simulate.py` races identical cars lap by lap. A lap time is the driver's pace
 (from skill and the day's form) plus noise, plus an occasional mistake. A
@@ -438,7 +438,7 @@ a rival pitted does not count). Circuits are then ranked: fewest passes = 1
 Singapore and Budapest near the top, which matches what anyone who watches F1
 would expect. It is a ranking, not a physical measurement.
 
-## 24. What is precomputed for the website, and how uncertainty is carried
+## 24. What is precomputed for the website, and how uncertainty is carried (rank ranges changed in 26)
 
 `export_web.py` draws 4,000 plausible versions of all 655 peak ratings from
 their joint uncertainty (the covariance from the model) on the GPU.
@@ -609,8 +609,10 @@ results correctly, against 59.3% for "last season's head to head repeats,
 otherwise more career points" and 57.9% for "more career points" alone.
 So over many seasons the model is only slightly better than the best simple
 rule. Its advantage is concentrated in seasons with many new pairings: in
-2025 it scored 65.9% against 57.8%. In some seasons (2019, 2022) it did
-worse than the baseline. The chart is docs/backtest.png, and it is also on
+2025 it scored 65.9% against 57.8%. Season by season it beat that baseline
+in 8 of the 16 seasons, tied in 1 and lost in 7 (worst: 2022, 54.4% against
+62.1%). For qualifying it calls 61.3% of 3,407 comparisons, against 59.7%
+and 57.5% for the two baselines. The chart is docs/backtest.png, and it is also on
 the About page.
 
 The 2025 figure differs from number 21's 68.6% because here 2025 is
@@ -634,3 +636,190 @@ separately and shown on driver pages as an exploratory estimate, with its
 range and the number of wet races behind it. Most drivers have fewer than
 8 wet races against a teammate, so their adjustment barely moves from zero,
 and the page says so.
+
+## 31. Sensitivity: which rankings rest on the era assumption
+
+`sensitivity.py` refits the model with three values of `ERA_DRIFT`, the one
+assumption the data cannot settle (how much the level of newcomers may
+change per decade): 0.03% ("hardly changed"), 0.10% (the default) and 0.25%
+("changed a lot"), and compares the top 20 among drivers with 30+ starts.
+
+A rank counts as "solid" if it moves by at most 3 places across the three.
+Solid: Schumacher, Fangio, Senna, Stewart, Alonso, Frentzen, Moss, Häkkinen,
+Prost and Mansell. Depends on the assumption: Clark, Rindt, Verstappen,
+Ascari, Graham Hill, Surtees, Button, Massa, Hamilton and Gurney. The
+pattern is what you would expect: assuming the field hardly changed favours
+the 1960s drivers (Clark 2nd, Rindt 4th); assuming it changed a lot favours
+modern ones (Verstappen 3rd, Hamilton 14th instead of 27th). McLaren,
+Peterson and Hunt enter the top 20 only under "hardly changed"; Rosberg and
+Leclerc only under "changed a lot". The table is on the About page.
+
+## 32. Posterior sampling checks the Laplace approximation
+
+`sample_posterior.py` draws 1,000 samples of every unknown (2,522 of them)
+plus the five scale numbers with NUTS (the No-U-Turn Sampler, from the
+Pyro library), using the model's own badness function, so the sampler
+targets exactly the same model. It runs in coordinates where the Laplace
+answer would be a plain round bell curve (a standard trick called
+preconditioning), which makes it fast: 3.9 minutes on the GPU, with a
+median of 1,000 effective samples per skill (lowest 868).
+
+What it found:
+
+- **Skills**: the sampled uncertainty is a median 1.04 times the Laplace
+  value (10th to 90th percentile 0.99 to 1.09). The Laplace approximation
+  was close, slightly too narrow, as expected (it ignored the uncertainty
+  of the scale numbers). The ratings on the site now use the sampled
+  ranges.
+- **Scale numbers**: the race slope's full posterior is 2.03 to 2.32 (90%
+  range, mean 2.17), while the single best fit, which the Laplace step and
+  all predictions use, is 2.91. In a model with thousands of unknowns, the
+  single most likely combination is not typical of the plausible ones. A
+  steeper slope means more confident predictions, which is one likely
+  reason the backtest found the model over-confident (number 27). Using
+  the sampled slope everywhere would mean re-running the backtest with a
+  sampler for every season; it is the most promising next step.
+- The rank range changes in number 26 matter far more for the site than the
+  switch from Laplace to sampling. Old against new top 20 (from
+  `compare_ratings.py`): the same 20 drivers in the same order with the same
+  best estimates; ranges a median 1.04 times as wide; rank ranges much
+  narrower, for example Hamilton 5 to 134 became 7 to 90 and Fangio 2 to 37
+  became 1 to 21. 99 drivers moved more than 10 places, all ranked 115th or
+  lower, and all because drivers with fewer than 30 starts above them are
+  no longer ranked.
+
+## 33. The simulator, reworked so races do not just follow the grid
+
+The owner's test at Interlagos showed races sticking to the grid: Albon
+(+0.39%) won from pole while Verstappen (+0.88%) could not pass from 4th.
+Measured on 1,000 races with today's grid (`check_simulator.py`), the old
+simulator's finishing order had a rank correlation of 0.93 with the grid
+(real F1 2018 to 2025: 0.74, and real cars differ, which makes real races
+follow the grid more, not less). Causes and fixes:
+
+- **Passing**: the old rule let a car past only if it was quicker by more
+  than the circuit's margin on that single lap, so lap to lap noise decided
+  passes. Now a car that catches the one ahead gets past with a probability
+  that rises smoothly with its PACE advantage for the day (an S-curve,
+  centred on 0.0s at the easiest circuit and 1.0s at Monaco). A clearly
+  faster car gets by within a few laps at Interlagos; at Monaco it may not.
+- **Qualifying**: the grid is a simulated qualifying session, shown as
+  "Grid from simulated qualifying" on the race screen, unless the user
+  chooses "I'll set the order" (shown as "Grid: your order"). Qualifying
+  form is only partly linked to race form, by a correlation of 0.32
+  MEASURED from 1,457 weekends since 2018 (how a driver's qualifying gap and
+  race pace gap to their teammate move together from weekend to weekend).
+  Before, qualifying used the race form itself, so the grid already was the
+  race order.
+- **Race distance**: the default is now the real race distance (71 laps at
+  Interlagos); the old default was a 15 lap sprint.
+- **Randomness** is split into a per race form (the main luck) and a small
+  lap to lap noise (0.08% of a lap, down from 0.25%), so a single lap cannot
+  outweigh a real skill gap.
+- **Safety cars**: one random safety car in 56% of races, the rate measured
+  from 2018 to 2026 races. Without it the steady form difference built up
+  all race and the field finished minutes apart.
+- **Calibration**: the form was retuned (now 0.40%) so simulated drivers
+  still beat each other as often as the fitted model says: for a 0.4% skill
+  gap, model 76.2%, simulation 75.8% (20,000 races).
+- **Rating uncertainty** in fantasy races is now off by default, with a
+  checkbox to turn it on. Drawing every driver's rating from its range on
+  top of the form made races noisier than the calibration intends.
+
+Before and after (1,000 races each, today's grid at Interlagos):
+
+| | Old, 15 laps | Old, 71 laps | New, 71 laps |
+|---|---|---|---|
+| Grid vs finish rank correlation | 0.931 | 0.913 | 0.653 |
+| Average places moved | 1.90 | 2.17 | 3.87 |
+| Top rated driver wins from pole | 55.3% | 40.8% | 46.2% |
+| ... from 5th | 15.1% | 22.0% | 18.8% |
+| ... from 15th | 4.1% | 16.1% | 14.8% |
+| Fastest lap by a top 3 rated driver | 52.1% | 52.1% | 51.7% |
+| Median gap, winner to 2nd / to 10th | 2.6s / 14.4s | 9.4s / 46.6s | 6.4s / 37.1s |
+
+What did not improve: the fastest lap still goes to a top 3 driver only
+about half the time (chance would give 15%). The race form, which is
+calibrated to the model, varies by 0.40% of a lap, more than the gaps
+between the top drivers on today's grid, so on the day someone else is
+often quickest. Making it go to the top drivers more often would make the
+whole race more predictable than the validated model allows. Automated
+tests in `test_simulate.py` keep these numbers inside sensible bounds.
+
+With the reworked simulator, the equal car champion of each season changed
+in only 2 of 77 seasons (1958 Hawthorn to Moss, 1983 Prost to Keke
+Rosberg), both close seasons; the favourites' average title chance stayed
+about 49%.
+
+The results table and timing tower no longer show the driver's slot number,
+which users read as a grid position: the results table has a "Started"
+column with the change shown as "+3" or "−3", the tower shows position,
+colour and driver (plus the gap, which the original brief asked for), and
+the dots on the track carry the driver's three letter code.
+
+## 34. "Why this rating": exact removal effects for a bowl-shaped fit
+
+`explain_ratings.py` estimates, for each of the 2,828 teammate pairings,
+how much each driver's peak rating would change without that pairing's
+results. A first version used the one-step approximation (covariance times
+the pairing's pull). It understated pairings that carry most of the
+information about a driver, because the covariance it uses still contains
+that pairing's own information; the result was, for example, a Senna panel
+dominated by unrelated pairings. The fix uses the exact answer for a
+bowl-shaped (quadratic) fit: remove the pairing's own curvature first. That
+curvature has one column per season the pair raced together, so the
+Woodbury identity makes it a tiny calculation per pairing. The panel shows
+the four pairings that pushed a rating up and down most, and the shortest
+chain of teammates to today's grid (fewest links, then longest partnerships).
+
+A battle can matter without moving the rating: Senna's seasons with Berger
+barely move his peak, because his seasons either side already put him at
+the same level. Those battles make the rating more certain rather than
+higher or lower. The panel's wording says "moved".
+
+## 35. The Pit Wall assistant: a language model that may only quote the model
+
+The assistant answers fans' questions with Claude (Anthropic's API) through
+one server endpoint (`web/app/api/chat/route.ts`). Design choices:
+
+- **Tools, not knowledge.** The language model gets seven tools that read
+  the exported model data (`web/lib/tools.ts`): get_driver_rating,
+  compare_drivers, simulate_race, get_teammate_record, explain_rating,
+  get_wet_rating and list_top_drivers. Tools return numbers ready to quote
+  (percentages as whole numbers, skill to two decimals), so the model never
+  needs to do arithmetic.
+- **A checker, not just an instruction.** The system prompt says every
+  number must come from a tool, but instructions alone are not a guarantee.
+  After each answer, `web/lib/numbers.ts` finds every number in it and
+  checks it can be traced to a tool result or the question (allowing for
+  rounding). If not, the model is told exactly which numbers had no source
+  and asked to rewrite once; any number still untraced is shown to the
+  reader with a warning.
+- **Model**: Claude Opus 5.5 by default (`PIT_WALL_MODEL` can change it),
+  with low effort (looking up numbers needs little deliberation) and the
+  server-side refusal fallback switched on. The system prompt and tools are
+  cached between questions, which makes each question after the first
+  cheaper.
+- **Cost control**: the API key lives only in a Vercel environment
+  variable. With no key the panel says it is unavailable. A rate limiter
+  allows 5 questions per visitor per 10 minutes, 20 per day, and 100 for
+  the whole site per day (all adjustable by environment variable). It lives
+  in server memory, so it is a brake, not a lock; the real backstop is a
+  monthly spend limit set in the Anthropic Console.
+- **Evaluation**: `web/eval/questions.json` has 50 questions: 15 factual
+  ones whose answers are real records (Senna's 41 wins and so on, checked
+  against the data by `npm run eval -- --dry`), 30 comparisons whose correct
+  numbers come from the tools, and 5 trick questions (made-up drivers,
+  future seasons) that must be declined. `web/eval/run-eval.ts` scores
+  four things: the right tool, the expected numbers quoted, no untraceable
+  numbers, and correct refusals. The live evaluation needs an API key and
+  costs money; it had not been run when this was written because no key
+  was available on the development machine (see the README).
+
+## 36. Deployment: a normal Next.js build instead of a static export
+
+The site was a static export (plain files, no server). The assistant needs
+one server endpoint to keep the API key secret, so the build is now a
+normal Next.js build: every page is still pre-rendered as static HTML, and
+only `/api/chat` runs as a small serverless function on Vercel's free tier.
+Vercel's project settings must point the Root Directory at `web`.

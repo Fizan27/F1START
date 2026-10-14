@@ -62,6 +62,14 @@ well enough to explain it confidently in an interview.
 Deliverables at the end: README with validation results, docs/INTERVIEW_GUIDE.md
 and three honest CV bullet points with real numbers.
 
+Added later (second brief, 2026-10-14): a rolling backtest (backtest.py),
+posterior sampling (sample_posterior.py), wet ratings, the "Why this rating"
+panel, sensitivity checks, a reworked simulator, and the Pit Wall assistant
+(web/lib/pitwall.ts, web/app/api/chat). The assistant may only quote numbers
+returned by its tools, and code checks this. The Anthropic API key is only
+ever a Vercel environment variable (ANTHROPIC_API_KEY): never in the repo.
+Deployment steps are in docs/DEPLOY.md.
+
 ## Machine and environment
 
 - Windows 11, Intel Core Ultra 7 255HX, 32 GB RAM, NVIDIA RTX 5070 Ti Laptop
@@ -84,6 +92,7 @@ and three honest CV bullet points with real numbers.
 - Uncertainty must be honestly wider for older eras and for drivers with few
   races or few teammates.
 - Car caused retirements must never count against a driver.
-- Report weaknesses. Never overstate results.
+- Report weaknesses. Never overstate results. A change to the model is kept
+  only if the rolling backtest does not get worse, and is reported either way.
 - Every number in the README must come from a script in this repo that can be
   re-run.
