@@ -120,10 +120,10 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; 
 
 .tower { position: relative; }
 .tower-row {
-  position: absolute; left: 0; right: 0; height: 30px;
+  position: relative; height: 30px; margin-bottom: 2px; /* rows are 32px apart: TOWER_ROW_HEIGHT in app/page.tsx */
   display: grid; grid-template-columns: 26px 14px 1fr auto; gap: 10px; align-items: center;
   padding: 0 8px; border-radius: 6px;
-  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.3s;
+  transition: background 0.3s;
 }
 .tower-row:nth-child(odd) { background: rgba(255, 255, 255, 0.025); }
 .tower-row.out { opacity: 0.45; }

@@ -206,3 +206,19 @@ export function driverCodes(names: string[]): string[] {
   return codes.map((code, i) =>
     codes.filter((other) => other === code).length > 1 ? plain(names[i])[0].toUpperCase() + code.slice(0, 2) : code);
 }
+
+/**
+ * Which cars changed place since the previous tower, and by how much.
+ * Positive = places gained (moved up), negative = places lost. Cars that
+ * were not in the previous order (the very first update) are left out.
+ * Used by the timing tower to flash rows and slide them to their new place.
+ */
+export function placeChanges(previousOrder: number[], rows: TowerRow[]): Record<number, number> {
+  const before = new Map(previousOrder.map((car, place) => [car, place]));
+  const changes: Record<number, number> = {};
+  rows.forEach((row, place) => {
+    const old = before.get(row.car);
+    if (old !== undefined && old !== place) changes[row.car] = old - place;
+  });
+  return changes;
+}

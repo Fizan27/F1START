@@ -14,12 +14,12 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import DriverPicker from "@/components/DriverPicker";
 import { type Circuit, type Driver, type Settings, useData } from "@/lib/data";
 import {
-  driverCodes, isOut, progressAt, type Race, raceLength, simulateRace, towerAt, type TowerRow,
+  driverCodes, isOut, placeChanges, progressAt, type Race, raceLength, simulateRace, towerAt, type TowerRow,
 } from "@/lib/sim";
 
 const MAX_CARS = 20;
@@ -443,32 +443,45 @@ function Track({ points, entrants, codes, carElements }: TrackProps) {
 }
 
 function Tower({ rows, entrants, race }: { rows: TowerRow[]; entrants: Driver[]; race: Race }) {
-  // Remember each car's last position, to flash a row green or red when it changes.
-  const lastPlace = useRef<Record<number, number>>({});
+  // Remember each car's last position, to flash a row green or red when it
+  // changes and to slide it from its old place to its new one.
+  const lastOrder = useRef<number[]>([]);
   const flash = useRef<Record<number, { kind: string; until: number }>>({});
+  const elements = useRef<Record<number, HTMLDivElement | null>>({});
   const now = typeof performance === "undefined" ? 0 : performance.now();
-  rows.forEach((row, place) => {
-    const before = lastPlace.current[row.car];
-    if (before !== undefined && before !== place && !row.out) {
-      flash.current[row.car] = { kind: place < before ? "gained" : "lost", until: now + 1200 };
+  const moves = placeChanges(lastOrder.current, rows);
+  for (const [car, change] of Object.entries(moves)) {
+    if (!rows.find((row) => row.car === Number(car))?.out) {
+      flash.current[Number(car)] = { kind: change > 0 ? "gained" : "lost", until: now + 1200 };
     }
-    lastPlace.current[row.car] = place;
+  }
+
+  // The rows are built in race order (P1 first), so the order is right for
+  // every browser, screen reader and copy-paste. A row that moved is then
+  // animated from where it used to be to where it is now.
+  useLayoutEffect(() => {
+    for (const [car, change] of Object.entries(moves)) {
+      elements.current[Number(car)]?.animate(
+        [{ transform: `translateY(${change * TOWER_ROW_HEIGHT}px)` }, { transform: "translateY(0)" }],
+        { duration: 450, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+      );
+    }
+    lastOrder.current = rows.map((row) => row.car);
   });
 
   return (
-    <div className="tower" style={{ height: rows.length * TOWER_ROW_HEIGHT }}>
-      {/* Rows are always listed in car order and moved with CSS, so a row
-          slides to its new place when the order changes. */}
-      {entrants.map((driver, car) => {
-        const place = rows.findIndex((row) => row.car === car);
-        if (place < 0) return null;
-        const row = rows[place];
+    <div className="tower">
+      {rows.map((row, place) => {
+        const car = row.car;
+        const driver = entrants[car];
         const flashing = flash.current[car] && flash.current[car].until > now ? flash.current[car].kind : "";
         return (
           <div
             key={driver.id}
+            ref={(element) => {
+              elements.current[car] = element;
+            }}
             className={`tower-row ${row.out ? "out" : ""} ${flashing}`}
-            style={{ transform: `translateY(${place * TOWER_ROW_HEIGHT}px)` }}
           >
             <span className="tower-pos num">{place + 1}</span>
             <CarSwatch car={car} />

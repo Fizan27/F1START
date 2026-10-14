@@ -16,8 +16,13 @@
 # Which files use it: test_simulate.py.
 #
 # Run:  .venv\Scripts\python.exe check_simulator.py
+#       .venv\Scripts\python.exe check_simulator.py --race-page
+#         the all-time grid checks: pole share and average grid slot of the top
+#         five, and how far drivers starting 16th to 20th come through at
+#         Silverstone, each next to real F1 data
 
 import json
+import sys
 from pathlib import Path
 
 import polars as pl
@@ -104,7 +109,105 @@ def print_numbers(label: str, numbers: dict):
         print(f"  median gap, winner to 2nd / 10th  {numbers['gap_to_second']:.1f}s / {numbers['gap_to_tenth']:.1f}s")
 
 
+def all_time_grid() -> list[dict]:
+    """The website's "All-time top 20" quick grid: the 20 best rated drivers with 50+ starts."""
+    drivers = json.loads((WEB / "drivers.json").read_text(encoding="utf-8"))
+    return sorted([d for d in drivers if d["starts"] >= 50], key=lambda d: -d["skill"])[:20]
+
+
+def circuit(circuit_id: str) -> tuple[float, int, float]:
+    """A circuit's lap time, race laps and overtaking difficulty."""
+    data = json.loads((WEB / "circuits" / f"{circuit_id}.json").read_text(encoding="utf-8"))
+    settings = json.loads((WEB / "settings.json").read_text(encoding="utf-8"))
+    return data["lapSeconds"], data["raceLaps"], settings["difficulty"][circuit_id]
+
+
+def run_field(field: list[dict], circuit_id: str, laps: int | None = None, races: int = RACES, seed: int = 3) -> dict:
+    """Simulate `races` races (or, with laps=1, just qualifying) for a field at a circuit."""
+    lap_seconds, race_laps, difficulty = circuit(circuit_id)
+    generator = torch.Generator(device=simulate.DEVICE).manual_seed(seed)
+    skill = torch.tensor([d["skill"] for d in field], device=simulate.DEVICE).repeat(races, 1)
+    errors = simulate.error_factor(torch.tensor([float(d["consistency"]) for d in field], device=simulate.DEVICE))
+    return simulate.simulate_races(skill, errors, lap_seconds, laps or race_laps, difficulty, generator)
+
+
+def qualifying_report(field: list[dict], sessions: int = RACES) -> list[dict]:
+    """How often each of the top 5 rated drivers takes pole, and their average grid slot."""
+    grid = run_field(field, "silverstone", laps=1, races=sessions)["grid"] + 1  # 1 = pole
+    return [{"driver": d["name"], "skill": d["skill"],
+             "pole": (grid[:, i] == 1).float().mean().item(),
+             "average_grid": grid[:, i].float().mean().item()} for i, d in enumerate(field[:5])]
+
+
+def back_of_grid_report(field: list[dict], circuit_id: str = "silverstone", races: int = RACES) -> list[dict]:
+    """For each driver, what happens when they start in the bottom five (16th to 20th)."""
+    result = run_field(field, circuit_id, races=races)
+    start, finish, crashed = result["grid"] + 1, result["place"], result["crashed"]
+    rows = []
+    for i, d in enumerate(field):  # the field is sorted best rated first
+        back = (start[:, i] >= 16) & ~crashed[:, i]
+        if back.sum() < 20:
+            continue  # too few races starting at the back to say anything
+        rows.append({"driver": d["name"], "rating_rank": i + 1, "races": int(back.sum()),
+                     "average_start": start[back, i].float().mean().item(),
+                     "average_finish": finish[back, i].float().mean().item()})
+    return rows
+
+
+def real_qualifying_reference(first: int = 2014, last: int = 2025) -> list[dict]:
+    """Real F1: each season's best qualifier (best average qualifying position), their pole
+    share and average position. Real cars differ, so this is the upper end of how dominant a
+    top qualifier can be."""
+    results = pl.read_parquet("data/results.parquet").filter(
+        pl.col("Year").is_between(first, last) & (pl.col("QualiSource") == "qualifying"))
+    races = results.group_by("Year").agg(pl.struct("Round").n_unique().alias("races"))
+    per_driver = results.group_by("Year", "DriverName").agg(
+        pl.len().alias("n"), (pl.col("QualiPosition") == 1).mean().alias("pole"),
+        pl.col("QualiPosition").mean().alias("average")).join(races, on="Year")
+    best = per_driver.filter(pl.col("n") >= pl.col("races") * 0.75).sort("average").group_by("Year").first()
+    return best.sort("Year").to_dicts()
+
+
+def real_back_of_grid_reference(first: int = 2018, last: int = 2025) -> dict:
+    """Real F1: average finish of classified drivers who started 16th to 20th, all of them and
+    only those in one of the season's three best cars (the nearest real case to a fast driver
+    stuck at the back)."""
+    results = pl.read_parquet("data/results.parquet").filter(
+        pl.col("Year").is_between(first, last) & pl.col("Classified") & pl.col("Grid").is_between(16, 20))
+    cars = pl.read_parquet("data/car_strengths.parquet").with_columns(
+        pl.col("CarStrength").rank(descending=True).over("Year").alias("car_rank"))
+    joined = results.join(cars.select("TeamId", "Year", "car_rank"), on=["TeamId", "Year"], how="left")
+    top_cars = joined.filter(pl.col("car_rank") <= 3)
+    return {"all": (results.height, results["Grid"].mean(), results["Position"].mean()),
+            "top_three_cars": (top_cars.height, top_cars["Grid"].mean(), top_cars["Position"].mean())}
+
+
+def print_race_page_checks():
+    """The owner's checks on the all-time grid: qualifying spread and the back of the grid at Silverstone."""
+    field = all_time_grid()
+    print(f"\nAll-time top 20 grid, {RACES} simulated qualifying sessions:")
+    for row in qualifying_report(field):
+        print(f"  {row['driver']:<22} skill {row['skill']:+.2f}  pole {row['pole'] * 100:5.1f}%  "
+              f"average grid slot {row['average_grid']:4.1f}")
+    print("\nReal F1, each season's best qualifier (real cars differ):")
+    for row in real_qualifying_reference():
+        print(f"  {row['Year']}  {row['DriverName']:<22} pole {row['pole'] * 100:5.1f}%  average position {row['average']:4.1f}")
+    print(f"\nAll-time top 20 grid at Silverstone, {RACES} races: drivers when they started 16th to 20th")
+    print(f"  {'driver':<22} {'rating rank':>11} {'races':>6} {'avg start':>9} {'avg finish':>10} {'gained':>7}")
+    for row in back_of_grid_report(field):
+        print(f"  {row['driver']:<22} {row['rating_rank']:>11} {row['races']:>6} {row['average_start']:>9.1f} "
+              f"{row['average_finish']:>10.1f} {row['average_start'] - row['average_finish']:>+7.1f}")
+    real = real_back_of_grid_reference()
+    for label, (count, start, finish) in (("all classified starters", real["all"]),
+                                          ("in one of the 3 best cars", real["top_three_cars"])):
+        print(f"  Real F1 2018-2025, {label}: {count} cases, average start {start:.1f}, "
+              f"average finish {finish:.1f} (gained {start - finish:+.1f})")
+
+
 def main():
+    if "--race-page" in sys.argv:
+        print_race_page_checks()
+        return
     field = todays_grid()
     lap_seconds, laps, difficulty = interlagos()
     print(f"Today's grid at Interlagos, {RACES} races, {laps} laps. Top rated: "
