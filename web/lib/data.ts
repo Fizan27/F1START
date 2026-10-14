@@ -13,9 +13,9 @@ import { useEffect, useState } from "react";
 export type Driver = {
   id: string;
   name: string;
-  rank: number; // 1 = highest peak skill of all drivers
-  rankLow: number; // the rank could plausibly be anywhere from here...
-  rankHigh: number; // ...to here (middle 90%)
+  rank: number | null; // 1 = highest peak skill among drivers with 30+ starts; null for the rest
+  rankLow: number | null; // the rank could plausibly be anywhere from here...
+  rankHigh: number | null; // ...to here (middle 90%)
   skill: number; // peak skill: percent of lap time quicker than an average newcomer of today
   sd: number; // uncertainty of the skill (one standard deviation)
   peak: [number, number]; // first and last season of the peak
@@ -24,6 +24,14 @@ export type Driver = {
   wins: number;
   mates: number | null; // how many different teammates
   consistency: number; // 0 to 100, 50 = typical
+  wet: [number, number, number]; // wet adjustment, its uncertainty, wet races against a teammate
+};
+
+// up / down: [driver A, driver B, from, to, races, effect on the rating]; chain: [next driver, from, to, races]
+export type Explanation = {
+  up: [string, string, number, number, number, number][];
+  down: [string, string, number, number, number, number][];
+  chain: [string, number, number, number][];
 };
 
 // [teammate id, from year, to year, races won, races compared, qualifyings won, qualifyings compared]
@@ -56,6 +64,8 @@ export type Circuit = {
 export type SimSettings = {
   formSd: number;
   qualiNoise: number;
+  qualiFormLink: number;
+  passSpread: number;
   lapNoise: number;
   mistakeChance: number;
   mistakeSeconds: number;

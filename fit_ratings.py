@@ -30,6 +30,7 @@ import torch
 import model
 
 RESULTS_FILE = Path("data/results.parquet")
+SAMPLES_FILE = Path("data/posterior_samples.pt")
 OUTPUT_FOLDER = Path("data")
 
 PEAK_SEASONS = 3  # the peak is the best run of this many seasons in a row
@@ -58,12 +59,15 @@ def peak_window(seasons: list[int], skills: list[float]) -> tuple[int, int]:
     return start, start + size
 
 
-def peak_ratings(fit: model.Fit) -> tuple[pl.DataFrame, torch.Tensor]:
+def peak_ratings(fit: model.Fit) -> tuple[pl.DataFrame, torch.Tensor, torch.Tensor]:
     """Each driver's peak skill and its uncertainty, plus the covariance between drivers.
 
     The peak is an average of three of the fitted skills. The uncertainty of
     an average of uncertain numbers that move together is worked out exactly
-    from the covariance: weights x covariance x weights.
+    from the covariance: weights x covariance x weights. (The Laplace
+    version. sampled_peaks below gives the sampled version.)
+    Also returns the weights, one row per driver, saying which skills make
+    up their peak.
     """
     careers = {}
     for (driver, year), position in fit.index.items():
@@ -82,8 +86,40 @@ def peak_ratings(fit: model.Fit) -> tuple[pl.DataFrame, torch.Tensor]:
                      "FirstYear": years[0], "LastYear": years[-1], "Seasons": len(years)})
     covariance = weights @ fit.covariance @ weights.T
     ratings = pl.DataFrame(rows).with_columns(
-        pl.Series("PeakSd", covariance.diagonal().sqrt().tolist()))
-    return ratings, covariance
+        pl.Series("PeakSdLaplace", covariance.diagonal().sqrt().tolist()))
+    return ratings, covariance, weights
+
+
+def sampled_peaks(fit: model.Fit, weights: torch.Tensor) -> torch.Tensor | None:
+    """Plausible versions of every driver's peak, from sample_posterior.py: versions x drivers.
+
+    None if the samples file is missing or was made from different data (then
+    the Laplace uncertainty is used instead).
+    """
+    if not SAMPLES_FILE.exists():
+        return None
+    saved = torch.load(SAMPLES_FILE)
+    if saved["keys"] != list(fit.index) or saved["layout"] != fit.layout:
+        print(f"{SAMPLES_FILE} does not match this fit: run sample_posterior.py again. Using Laplace.")
+        return None
+    samples = saved["samples"].to(model.DEVICE, model.DTYPE)
+    return samples @ weights.T
+
+
+def wet_columns(wet_fit: model.Fit, ratings: pl.DataFrame) -> pl.DataFrame:
+    """Each driver's wet adjustment, its uncertainty, and the wet races behind it.
+
+    `wet_fit` is a SEPARATE fit of the model with the wet adjustment switched
+    on. The main ratings do not use it, because the backtest found it made
+    predictions slightly worse (DECISIONS.md 30); it is reported on its own,
+    as an exploratory estimate. Drivers with no wet races get 0 and the
+    prior's full uncertainty.
+    """
+    rows = []
+    for driver in ratings["DriverId"]:
+        mean, sd, races = wet_fit.wet.get(driver, (0.0, model.WET_SPREAD, 0))
+        rows.append({"DriverId": driver, "WetAdj": mean, "WetSd": sd, "WetRaces": races})
+    return ratings.join(pl.DataFrame(rows), on="DriverId", how="left")
 
 
 def crash_rates(results: pl.DataFrame) -> pl.DataFrame:
@@ -170,9 +206,20 @@ def teammate_records(pairs: pl.DataFrame) -> pl.DataFrame:
     ).sort("DriverId", "RacesTogether", descending=[False, True])
 
 
-def build_ratings(fit, results, pairs, pace) -> tuple[pl.DataFrame, torch.Tensor]:
-    """Put every per-driver number in one table, best peak skill first."""
-    ratings, covariance = peak_ratings(fit)
+def build_ratings(fit, wet_fit, results, pairs, pace) -> tuple[pl.DataFrame, torch.Tensor, torch.Tensor | None]:
+    """Put every per-driver number in one table.
+
+    PeakSd is the sampled uncertainty when the samples exist, and the Laplace
+    one otherwise (PeakSdLaplace is always kept, for comparison). Returns the
+    table, the Laplace covariance of the peaks, and the sampled peaks (or None).
+    """
+    ratings, covariance, weights = peak_ratings(fit)
+    peaks = sampled_peaks(fit, weights)
+    if peaks is None:
+        ratings = ratings.with_columns(pl.col("PeakSdLaplace").alias("PeakSd"), pl.lit("laplace").alias("Uncertainty"))
+    else:
+        ratings = ratings.with_columns(pl.Series("PeakSd", peaks.std(dim=0).tolist()),
+                                       pl.lit("samples").alias("Uncertainty"))
     teammates = teammate_records(pairs).group_by("DriverId").agg(pl.len().alias("Teammates"))
     ratings = (
         ratings.join(career_totals(results), on="DriverId", how="left")
@@ -180,7 +227,7 @@ def build_ratings(fit, results, pairs, pace) -> tuple[pl.DataFrame, torch.Tensor
         .join(crash_rates(results), on="DriverId", how="left")
         .join(lap_steadiness(pace), on="DriverId", how="left")
     )
-    return add_consistency(ratings), covariance
+    return wet_columns(wet_fit, add_consistency(ratings)), covariance, peaks
 
 
 def print_top(ratings: pl.DataFrame, minimum_starts: int = 50, count: int = 25):
@@ -199,21 +246,25 @@ def main():
     results = pl.read_parquet(RESULTS_FILE)
     last_year = results["Year"].max()
 
-    fit = model.fit_model(pairs, pace, last_year)
-    print(f"Fitted {len(fit.index):,} driver-seasons up to {last_year} on {model.DEVICE}")
+    fit = model.fit_model(pairs, pace, last_year, wet_races=model.load_wet_races())
+    print(f"Fitted {len(fit.index):,} driver-seasons up to {last_year} on {model.DEVICE}, options {fit.options}")
     print("Learned scales:", {name: round(value, 3) for name, value in fit.scales.items()})
     print("Era levels:", {decade: round(level, 2) for decade, level in fit.era_level.items()})
 
-    ratings, covariance = build_ratings(fit, results, pairs, pace)
+    wet_fit = model.fit_model(pairs, pace, last_year, wet_races=model.load_wet_races(), options=model.Options(wet=True))
+    ratings, covariance, peaks = build_ratings(fit, wet_fit, results, pairs, pace)
     cars, driver_weight = model.car_strengths(results, fit, last_year)
     print(f"Driver weight in race results: {driver_weight:.3f}")
+    print(f"Peak uncertainty from: {ratings['Uncertainty'][0]}")
 
     ratings.write_parquet(OUTPUT_FOLDER / "ratings.parquet")
     model.skill_table(fit).write_parquet(OUTPUT_FOLDER / "skill_by_season.parquet")
     teammate_records(pairs).write_parquet(OUTPUT_FOLDER / "teammate_records.parquet")
     cars.write_parquet(OUTPUT_FOLDER / "car_strengths.parquet")
     torch.save({"drivers": ratings["DriverId"].to_list(), "covariance": covariance.float().cpu(),
-                "scales": fit.scales, "era_level": fit.era_level, "skill_spread": fit.skill_spread, "season_drift": fit.season_drift},
+                "peak_samples": None if peaks is None else peaks.float().cpu(),
+                "scales": fit.scales, "temperature": model.RACE_TEMPERATURE, "era_level": fit.era_level,
+                "skill_spread": fit.skill_spread, "season_drift": fit.season_drift},
                OUTPUT_FOLDER / "peak_covariance.pt")
     print(f"Saved ratings for {ratings.height} drivers in {OUTPUT_FOLDER}")
     print_top(ratings)

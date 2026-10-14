@@ -18,6 +18,7 @@
 #     details.json        career curve and teammate records per driver
 #     h2h.json            head to head chances for drivers with 30+ starts
 #     championships.json  the equal car championship of every season
+#     records.json        every driver's record against every teammate (for the assistant)
 #     settings.json       the simulation's numbers, so the browser runs the
 #                         same race as simulate.py, plus circuit difficulty
 # Which files use it: the website (Phase 4).
@@ -41,6 +42,7 @@ MIN_STARTS_FOR_H2H = 30  # head to heads are precomputed for these drivers
 RACES_PER_SEASON_RACE = 1000  # simulations of each race of each season
 TYPICAL_LAP_SECONDS = 90.0
 TYPICAL_RACE_LAPS = 60
+TYPICAL_DIFFICULTY = 0.5  # championship races use a middling overtaking difficulty
 MODERN_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 RACE = ["Year", "Round"]
 
@@ -55,12 +57,16 @@ def write_json(name: str, content) -> None:
 # --- 1. Rank ranges ----------------------------------------------------------
 
 def plausible_ratings(ratings: pl.DataFrame, saved: dict, generator) -> torch.Tensor:
-    """Draw many plausible versions of every driver's peak rating at once.
+    """Many plausible versions of every driver's peak rating at once: versions x drivers.
 
-    Returns versions x drivers. The draws respect the covariance: if two
+    When sample_posterior.py has been run these are its samples, which make
+    the fewest assumptions. Otherwise they are drawn from the Laplace
+    covariance. Either way they respect how ratings move together: if two
     drivers were teammates, a version that rates one higher tends to rate the
     other higher too, so their GAP stays as certain as the data makes it.
     """
+    if saved.get("peak_samples") is not None:
+        return saved["peak_samples"].to(simulate.DEVICE)
     mean = torch.tensor(ratings["PeakSkill"].to_list(), device=simulate.DEVICE, dtype=torch.float64)
     covariance = saved["covariance"].to(simulate.DEVICE, torch.float64)
     # A tiny amount is added to the diagonal so rounding errors cannot make
@@ -73,7 +79,13 @@ def plausible_ratings(ratings: pl.DataFrame, saved: dict, generator) -> torch.Te
 
 
 def rank_ranges(versions: torch.Tensor) -> tuple[list, list]:
-    """Each driver's rank in the 5th and 95th percentile of the plausible versions."""
+    """Each driver's rank in the 5th and 95th percentile of the plausible versions.
+
+    Pass in only the drivers who should be ranked against each other. A driver
+    with three races has a rating that is almost pure guesswork, and in some
+    versions it would leap above everyone, widening every other driver's range
+    for no real reason (DECISIONS.md 26).
+    """
     ranks = (-versions).argsort(dim=1).argsort(dim=1).float() + 1
     low = ranks.quantile(0.05, dim=0).round().int().tolist()
     high = ranks.quantile(0.95, dim=0).round().int().tolist()
@@ -132,10 +144,9 @@ def simulate_season(skill: torch.Tensor, errors: torch.Tensor, races: list, gene
     points = torch.zeros(simulations, len(skill), device=simulate.DEVICE)
     for starters in races:
         cars = torch.tensor(starters, device=simulate.DEVICE)
-        place, crashed = simulate.simulate_races(
-            version[:, cars], errors[cars], TYPICAL_LAP_SECONDS, TYPICAL_RACE_LAPS,
-            simulate.pass_margin(0.5), generator)
-        points[:, cars] += points_table[place - 1] * ~crashed
+        race = simulate.simulate_races(version[:, cars], errors[cars], TYPICAL_LAP_SECONDS,
+                                       TYPICAL_RACE_LAPS, TYPICAL_DIFFICULTY, generator)
+        points[:, cars] += points_table[race["place"] - 1] * ~race["crashed"]
     return points
 
 
@@ -192,19 +203,29 @@ def overtaking_difficulty(results: pl.DataFrame, circuit_ids: list[str]) -> dict
 
 # --- Putting it together ------------------------------------------------------
 
-def driver_rows(ratings: pl.DataFrame, rank_low: list, rank_high: list) -> list[dict]:
-    """The compact list of every driver for the ranking page and the driver picker."""
+def driver_rows(ratings: pl.DataFrame, ranked_rows: list[int], rank_low: list, rank_high: list) -> list[dict]:
+    """The compact list of every driver for the ranking page and the driver picker.
+
+    rank, rankLow and rankHigh are positions among the drivers with at least
+    MIN_STARTS_FOR_H2H starts, and empty (None) for everyone else.
+    """
+    ranges = {row: (low, high) for row, low, high in zip(ranked_rows, rank_low, rank_high)}
     order = ratings.with_row_index("row").sort("PeakSkill", descending=True)
-    rows = []
-    for rank, driver in enumerate(order.iter_rows(named=True), start=1):
+    rows, rank = [], 0
+    for driver in order.iter_rows(named=True):
+        ranked = driver["row"] in ranges
+        rank += ranked
+        low, high = ranges.get(driver["row"], (None, None))
         rows.append({
-            "id": driver["DriverId"], "name": driver["DriverName"], "rank": rank,
-            "rankLow": rank_low[driver["row"]], "rankHigh": rank_high[driver["row"]],
+            "id": driver["DriverId"], "name": driver["DriverName"], "rank": rank if ranked else None,
+            "rankLow": low, "rankHigh": high,
             "skill": round(driver["PeakSkill"], 3), "sd": round(driver["PeakSd"], 3),
             "peak": [driver["PeakFrom"], driver["PeakTo"]],
             "years": [driver["FirstYear"], driver["LastYear"]],
             "starts": driver["Starts"], "wins": driver["Wins"], "mates": driver["Teammates"],
             "consistency": round(driver["Consistency"]),
+            # wet adjustment, its uncertainty, and how many wet races it rests on
+            "wet": [round(driver["WetAdj"], 3), round(driver["WetSd"], 3), driver["WetRaces"]],
         })
     return rows
 
@@ -230,6 +251,16 @@ def detail_rows(ratings, seasons: pl.DataFrame, records: pl.DataFrame) -> dict:
     return details
 
 
+def record_rows(records: pl.DataFrame) -> dict:
+    """Every driver's record against every teammate, for the assistant's get_teammate_record tool."""
+    table = {}
+    for row in records.iter_rows(named=True):
+        table.setdefault(row["DriverId"], []).append([
+            row["Teammate"], row["FromYear"], row["ToYear"], row["RaceWins"], row["RacesCompared"],
+            row["QualiWins"], row["QualisCompared"]])
+    return table
+
+
 def main():
     WEB.mkdir(parents=True, exist_ok=True)
     generator = torch.Generator(device=simulate.DEVICE).manual_seed(2026)
@@ -242,12 +273,14 @@ def main():
     print(f"Simulating on {simulate.DEVICE}. Files written to {WEB}:")
 
     versions = plausible_ratings(ratings, saved, generator)
-    rank_low, rank_high = rank_ranges(versions)
-    write_json("drivers.json", driver_rows(ratings, rank_low, rank_high))
-    write_json("details.json", detail_rows(ratings, seasons, records))
-
     regulars = [row for row, starts in enumerate(ratings["Starts"]) if starts >= MIN_STARTS_FOR_H2H]
-    best, low, high = head_to_heads(versions[:, regulars], saved["scales"]["race_slope"])
+    rank_low, rank_high = rank_ranges(versions[:, regulars])
+    write_json("drivers.json", driver_rows(ratings, regulars, rank_low, rank_high))
+    write_json("details.json", detail_rows(ratings, seasons, records))
+    write_json("records.json", record_rows(records))
+
+    slope = saved["scales"]["race_slope"] * saved["temperature"]
+    best, low, high = head_to_heads(versions[:, regulars], slope)
     write_json("h2h.json", {
         "drivers": [ratings["DriverId"][row] for row in regulars],
         "best": upper_triangle(best), "low": upper_triangle(low), "high": upper_triangle(high)})
@@ -259,7 +292,7 @@ def main():
 
     circuits = json.loads((WEB / "circuits" / "index.json").read_text(encoding="utf-8"))
     write_json("settings.json", {
-        "sim": simulate.SETTINGS, "raceSlope": round(saved["scales"]["race_slope"], 3),
+        "sim": simulate.SETTINGS, "raceSlope": round(slope, 3),
         "difficulty": overtaking_difficulty(results, [circuit["id"] for circuit in circuits]),
     })
 

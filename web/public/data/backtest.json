@@ -1,0 +1,438 @@
+{
+ "temperature": 0.45,
+ "seasons": [
+  {
+   "season": 2010,
+   "race": {
+    "comparisons": 165,
+    "model": 0.5,
+    "model_log_loss": 0.7456769011685865,
+    "model_brier": 0.2743465046045341,
+    "career_points": 0.48787878787878786,
+    "last_season_or_points": 0.48787878787878786
+   },
+   "quali": {
+    "comparisons": 224,
+    "model": 0.5736607142857143,
+    "model_log_loss": 0.824594040138999,
+    "model_brier": 0.2916610846553233,
+    "career_points": 0.5357142857142857,
+    "last_season_or_points": 0.5357142857142857
+   }
+  },
+  {
+   "season": 2011,
+   "race": {
+    "comparisons": 183,
+    "model": 0.5901639344262295,
+    "model_log_loss": 0.6734718803149419,
+    "model_brier": 0.24024152253930467,
+    "career_points": 0.5191256830601093,
+    "last_season_or_points": 0.6284153005464481
+   },
+   "quali": {
+    "comparisons": 225,
+    "model": 0.5822222222222222,
+    "model_log_loss": 0.7073668958728705,
+    "model_brier": 0.25259552562380194,
+    "career_points": 0.4577777777777778,
+    "last_season_or_points": 0.64
+   }
+  },
+  {
+   "season": 2012,
+   "race": {
+    "comparisons": 201,
+    "model": 0.5970149253731343,
+    "model_log_loss": 0.6599641342043985,
+    "model_brier": 0.2336759475900483,
+    "career_points": 0.5746268656716418,
+    "last_season_or_points": 0.5845771144278606
+   },
+   "quali": {
+    "comparisons": 237,
+    "model": 0.6244725738396625,
+    "model_log_loss": 0.6844108565582666,
+    "model_brier": 0.23938032191728334,
+    "career_points": 0.5063291139240507,
+    "last_season_or_points": 0.5147679324894515
+   }
+  },
+  {
+   "season": 2013,
+   "race": {
+    "comparisons": 173,
+    "model": 0.661849710982659,
+    "model_log_loss": 0.657753774120146,
+    "model_brier": 0.2325056371656744,
+    "career_points": 0.6329479768786127,
+    "last_season_or_points": 0.638728323699422
+   },
+   "quali": {
+    "comparisons": 207,
+    "model": 0.6111111111111112,
+    "model_log_loss": 0.6802515147450415,
+    "model_brier": 0.24210492575959824,
+    "career_points": 0.5410628019323671,
+    "last_season_or_points": 0.5942028985507246
+   }
+  },
+  {
+   "season": 2014,
+   "race": {
+    "comparisons": 152,
+    "model": 0.5855263157894737,
+    "model_log_loss": 0.709283405270476,
+    "model_brier": 0.2575203137346702,
+    "career_points": 0.5756578947368421,
+    "last_season_or_points": 0.5526315789473685
+   },
+   "quali": {
+    "comparisons": 200,
+    "model": 0.5875,
+    "model_log_loss": 0.7462203685441282,
+    "model_brier": 0.27010259684693927,
+    "career_points": 0.54,
+    "last_season_or_points": 0.5875
+   }
+  },
+  {
+   "season": 2015,
+   "race": {
+    "comparisons": 136,
+    "model": 0.5294117647058824,
+    "model_log_loss": 0.70583274840455,
+    "model_brier": 0.2559250725577279,
+    "career_points": 0.5036764705882353,
+    "last_season_or_points": 0.4522058823529412
+   },
+   "quali": {
+    "comparisons": 181,
+    "model": 0.5497237569060773,
+    "model_log_loss": 0.7494162207984231,
+    "model_brier": 0.2684426987648661,
+    "career_points": 0.5414364640883977,
+    "last_season_or_points": 0.47513812154696133
+   }
+  },
+  {
+   "season": 2016,
+   "race": {
+    "comparisons": 180,
+    "model": 0.5055555555555555,
+    "model_log_loss": 0.6981779131331177,
+    "model_brier": 0.25241422248816253,
+    "career_points": 0.45555555555555555,
+    "last_season_or_points": 0.5111111111111111
+   },
+   "quali": {
+    "comparisons": 226,
+    "model": 0.5685840707964602,
+    "model_log_loss": 0.732122817809168,
+    "model_brier": 0.26567128496091685,
+    "career_points": 0.5199115044247787,
+    "last_season_or_points": 0.497787610619469
+   }
+  },
+  {
+   "season": 2017,
+   "race": {
+    "comparisons": 144,
+    "model": 0.6215277777777778,
+    "model_log_loss": 0.6676012352915429,
+    "model_brier": 0.23733791935032666,
+    "career_points": 0.6006944444444444,
+    "last_season_or_points": 0.6284722222222222
+   },
+   "quali": {
+    "comparisons": 199,
+    "model": 0.6758793969849246,
+    "model_log_loss": 0.6276456778147991,
+    "model_brier": 0.21806263864063327,
+    "career_points": 0.6608040201005025,
+    "last_season_or_points": 0.6708542713567839
+   }
+  },
+  {
+   "season": 2018,
+   "race": {
+    "comparisons": 161,
+    "model": 0.5590062111801242,
+    "model_log_loss": 0.6839033009428648,
+    "model_brier": 0.24539980748353962,
+    "career_points": 0.5248447204968945,
+    "last_season_or_points": 0.5652173913043478
+   },
+   "quali": {
+    "comparisons": 210,
+    "model": 0.6142857142857143,
+    "model_log_loss": 0.6360782096485338,
+    "model_brier": 0.22338919638321905,
+    "career_points": 0.5261904761904762,
+    "last_season_or_points": 0.5428571428571428
+   }
+  },
+  {
+   "season": 2019,
+   "race": {
+    "comparisons": 179,
+    "model": 0.5698324022346368,
+    "model_log_loss": 0.688403776054959,
+    "model_brier": 0.24732711058705228,
+    "career_points": 0.6312849162011173,
+    "last_season_or_points": 0.6201117318435754
+   },
+   "quali": {
+    "comparisons": 208,
+    "model": 0.5384615384615384,
+    "model_log_loss": 0.7527131002349102,
+    "model_brier": 0.2756046212011223,
+    "career_points": 0.5240384615384616,
+    "last_season_or_points": 0.5480769230769231
+   }
+  },
+  {
+   "season": 2020,
+   "race": {
+    "comparisons": 138,
+    "model": 0.6086956521739131,
+    "model_log_loss": 0.657231030534973,
+    "model_brier": 0.2324140232711548,
+    "career_points": 0.5797101449275363,
+    "last_season_or_points": 0.5942028985507246
+   },
+   "quali": {
+    "comparisons": 167,
+    "model": 0.6197604790419161,
+    "model_log_loss": 0.5898845407737662,
+    "model_brier": 0.2041991747479527,
+    "career_points": 0.5778443113772455,
+    "last_season_or_points": 0.6317365269461078
+   }
+  },
+  {
+   "season": 2021,
+   "race": {
+    "comparisons": 193,
+    "model": 0.6424870466321243,
+    "model_log_loss": 0.6634415669845093,
+    "model_brier": 0.23525817812464633,
+    "career_points": 0.6269430051813472,
+    "last_season_or_points": 0.6269430051813472
+   },
+   "quali": {
+    "comparisons": 217,
+    "model": 0.619815668202765,
+    "model_log_loss": 0.6594639101510842,
+    "model_brier": 0.23309638220791007,
+    "career_points": 0.6382488479262672,
+    "last_season_or_points": 0.6382488479262672
+   }
+  },
+  {
+   "season": 2022,
+   "race": {
+    "comparisons": 182,
+    "model": 0.5439560439560439,
+    "model_log_loss": 0.6623491695797691,
+    "model_brier": 0.23490878720585023,
+    "career_points": 0.5714285714285714,
+    "last_season_or_points": 0.6208791208791209
+   },
+   "quali": {
+    "comparisons": 219,
+    "model": 0.6210045662100456,
+    "model_log_loss": 0.6461790940489875,
+    "model_brier": 0.2253567837133745,
+    "career_points": 0.6164383561643836,
+    "last_season_or_points": 0.6712328767123288
+   }
+  },
+  {
+   "season": 2023,
+   "race": {
+    "comparisons": 165,
+    "model": 0.6909090909090909,
+    "model_log_loss": 0.6355736322881279,
+    "model_brier": 0.22177986853174173,
+    "career_points": 0.7272727272727273,
+    "last_season_or_points": 0.6909090909090909
+   },
+   "quali": {
+    "comparisons": 215,
+    "model": 0.6372093023255814,
+    "model_log_loss": 0.6132626985055603,
+    "model_brier": 0.21160581101332318,
+    "career_points": 0.7023255813953488,
+    "last_season_or_points": 0.7023255813953488
+   }
+  },
+  {
+   "season": 2024,
+   "race": {
+    "comparisons": 191,
+    "model": 0.6544502617801047,
+    "model_log_loss": 0.6283391534124803,
+    "model_brier": 0.21838578127705097,
+    "career_points": 0.6596858638743456,
+    "last_season_or_points": 0.6596858638743456
+   },
+   "quali": {
+    "comparisons": 236,
+    "model": 0.6864406779661016,
+    "model_log_loss": 0.5546279846860779,
+    "model_brier": 0.1875641675300749,
+    "career_points": 0.6864406779661016,
+    "last_season_or_points": 0.6864406779661016
+   }
+  },
+  {
+   "season": 2025,
+   "race": {
+    "comparisons": 185,
+    "model": 0.6594594594594595,
+    "model_log_loss": 0.6144081585798328,
+    "model_brier": 0.2121902733505164,
+    "career_points": 0.5783783783783784,
+    "last_season_or_points": 0.5783783783783784
+   },
+   "quali": {
+    "comparisons": 236,
+    "model": 0.673728813559322,
+    "model_log_loss": 0.5630746367845323,
+    "model_brier": 0.1925522614333261,
+    "career_points": 0.614406779661017,
+    "last_season_or_points": 0.614406779661017
+   }
+  }
+ ],
+ "chosen": "base",
+ "summary": {
+  "race": {
+   "comparisons": 2728,
+   "model": 0.596224340175953,
+   "model_log_loss": 0.6706405675058585,
+   "model_brier": 0.2388404246084722,
+   "career_points": 0.5793621700879765,
+   "last_season_or_points": 0.5925586510263929
+  },
+  "quali": {
+   "comparisons": 3407,
+   "model": 0.6125623715879073,
+   "model_log_loss": 0.6724483022107328,
+   "model_brier": 0.23731619820958405,
+   "career_points": 0.5745523921338421,
+   "last_season_or_points": 0.5974464338127384
+  }
+ },
+ "summaryUncalibrated": {
+  "race": {
+   "comparisons": 2728,
+   "model": 0.596224340175953,
+   "model_log_loss": 0.6765425071054476,
+   "model_brier": 0.24074310962129974,
+   "career_points": 0.5793621700879765,
+   "last_season_or_points": 0.5925586510263929
+  },
+  "quali": {
+   "comparisons": 3407,
+   "model": 0.6125623715879073,
+   "model_log_loss": 0.6724483022107328,
+   "model_brier": 0.23731619820958405,
+   "career_points": 0.5745523921338421,
+   "last_season_or_points": 0.5974464338127384
+  }
+ },
+ "variants": {
+  "base": {
+   "race": {
+    "comparisons": 2728,
+    "model": 0.596224340175953,
+    "model_log_loss": 0.6765425071054476,
+    "model_brier": 0.24074310962129974,
+    "career_points": 0.5793621700879765,
+    "last_season_or_points": 0.5925586510263929
+   },
+   "quali": {
+    "comparisons": 3407,
+    "model": 0.6125623715879073,
+    "model_log_loss": 0.6724483022107328,
+    "model_brier": 0.23731619820958405,
+    "career_points": 0.5745523921338421,
+    "last_season_or_points": 0.5974464338127384
+   }
+  },
+  "team orders": {
+   "race": {
+    "comparisons": 2728,
+    "model": 0.596224340175953,
+    "model_log_loss": 0.6777318131380169,
+    "model_brier": 0.2412219946418959,
+    "career_points": 0.5793621700879765,
+    "last_season_or_points": 0.5925586510263929
+   },
+   "quali": {
+    "comparisons": 3407,
+    "model": 0.6125623715879073,
+    "model_log_loss": 0.6728981972900604,
+    "model_brier": 0.2375038038876706,
+    "career_points": 0.5745523921338421,
+    "last_season_or_points": 0.5974464338127384
+   }
+  },
+  "weak teammates": {
+   "race": {
+    "comparisons": 2728,
+    "model": 0.6046554252199413,
+    "model_log_loss": 0.6812074480226095,
+    "model_brier": 0.24252336356762866,
+    "career_points": 0.5793621700879765,
+    "last_season_or_points": 0.5925586510263929
+   },
+   "quali": {
+    "comparisons": 3407,
+    "model": 0.6181391253302025,
+    "model_log_loss": 0.6828899099299397,
+    "model_brier": 0.24080274015231992,
+    "career_points": 0.5745523921338421,
+    "last_season_or_points": 0.5974464338127384
+   }
+  },
+  "wet": {
+   "race": {
+    "comparisons": 2728,
+    "model": 0.5921920821114369,
+    "model_log_loss": 0.6788498069896751,
+    "model_brier": 0.2416729085612868,
+    "career_points": 0.5793621700879765,
+    "last_season_or_points": 0.5925586510263929
+   },
+   "quali": {
+    "comparisons": 3407,
+    "model": 0.6090402113296155,
+    "model_log_loss": 0.673674211738602,
+    "model_brier": 0.23797358745416136,
+    "career_points": 0.5745523921338421,
+    "last_season_or_points": 0.5974464338127384
+   }
+  },
+  "weak teammates + wet": {
+   "race": {
+    "comparisons": 2728,
+    "model": 0.5998900293255132,
+    "model_log_loss": 0.6835325773991825,
+    "model_brier": 0.2434392315547119,
+    "career_points": 0.5793621700879765,
+    "last_season_or_points": 0.5925586510263929
+   },
+   "quali": {
+    "comparisons": 3407,
+    "model": 0.6163780452010567,
+    "model_log_loss": 0.6835328270699815,
+    "model_brier": 0.2412825466518843,
+    "career_points": 0.5745523921338421,
+    "last_season_or_points": 0.5974464338127384
+   }
+  }
+ }
+}

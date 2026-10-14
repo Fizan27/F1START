@@ -121,7 +121,7 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; 
 .tower { position: relative; }
 .tower-row {
   position: absolute; left: 0; right: 0; height: 30px;
-  display: grid; grid-template-columns: 26px 30px 1fr auto; gap: 8px; align-items: center;
+  display: grid; grid-template-columns: 26px 14px 1fr auto; gap: 10px; align-items: center;
   padding: 0 8px; border-radius: 6px;
   transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.3s;
 }
@@ -139,7 +139,7 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; 
 
 .grid-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
 .grid-slot {
-  display: grid; grid-template-columns: 30px 1fr auto; gap: 8px; align-items: center;
+  display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; align-items: center;
   background: var(--surface-2); border-radius: 8px; padding: 6px 8px; font-size: 14px;
 }
 .grid-slot button { padding: 0 7px; border: none; background: none; color: var(--muted); font-size: 16px; }
@@ -206,3 +206,26 @@ td.right, th.right { text-align: right; }
 @media (prefers-reduced-motion: reduce) {
   .tower-row { transition: none; }
 }
+
+/* ---- Pit Wall assistant ---- */
+
+.pitwall-button { position: fixed; right: 20px; bottom: 20px; z-index: 40; border-radius: 999px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+.pitwall-panel {
+  position: fixed; right: 20px; bottom: 76px; z-index: 40;
+  width: min(420px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 120px));
+  display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.pitwall-messages { flex: 1; overflow-y: auto; margin-bottom: 10px; min-height: 120px; }
+.pitwall-turn { margin-bottom: 14px; }
+.pitwall-question { font-weight: 600; margin-bottom: 4px; }
+.pitwall-answer { color: var(--ink-2); white-space: pre-wrap; margin-bottom: 4px; }
+@media (max-width: 860px) {
+  .pitwall-button { right: 14px; bottom: 14px; }
+  .pitwall-panel { right: 16px; bottom: 66px; }
+}
+
+/* ---- Why this rating ---- */
+
+.why-list { list-style: none; padding: 0; margin: 0; }
+.why-list li { margin-bottom: 6px; }
+button.link { background: none; border: none; padding: 0; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

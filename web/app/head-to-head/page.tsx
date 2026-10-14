@@ -103,6 +103,27 @@ function Explanation({ a, b, chance, details }: ExplanationProps) {
       ? `Even at the unfavourable end of the range, ${chance.low > 50 ? a.name : b.name} stays the favourite.`
       : "The range crosses 50%, so the model cannot say with confidence who was better.";
 
+  // How wide the range is, judged only from the range itself, and then the
+  // real reasons for that width. (An earlier version picked its words from
+  // the years apart, and could call a range "fairly narrow" BECAUSE the
+  // drivers were decades apart, which is backwards.)
+  const widthWord = width >= 45 ? "wide" : width >= 25 ? "fairly wide" : "fairly narrow";
+  const reasons: string[] = [];
+  if (record) {
+    reasons.push("they were teammates, which ties their two ratings together and narrows it");
+  } else if (yearsApart > 15) {
+    reasons.push(`their peaks are ${Math.round(yearsApart)} years apart, so they are compared only through a long chain of teammates, and every link adds doubt`);
+  } else {
+    reasons.push("they never shared a car, so they are compared through drivers who were teammates of both, or of their teammates");
+  }
+  for (const driver of [a, b]) {
+    const plusMinus = 1.645 * driver.sd;
+    if (plusMinus >= 0.3) {
+      reasons.push(`${driver.name}'s own rating is uncertain (give or take ${plusMinus.toFixed(2)}%), because of ${
+        driver.starts < 80 ? "a short career" : driver.peak[0] < 1980 ? "an older era with fewer measured teammates" : "teammates who were themselves hard to rate"}`);
+    }
+  }
+
   return (
     <div className="prose" style={{ marginTop: 18 }}>
       <p>
@@ -112,19 +133,7 @@ function Explanation({ a, b, chance, details }: ExplanationProps) {
         over a race distance it adds up, but one bad weekend can outweigh it.
       </p>
       <p>
-        {verdict}{" "}
-        {width >= 40
-          ? "The range is wide because "
-          : width >= 25
-            ? "The range is fairly wide because "
-            : "The range is fairly narrow because "}
-        {record
-          ? "although they were teammates, a rating is an average over three seasons and several teammates."
-          : yearsApart > 15
-            ? `their peaks are ${Math.round(yearsApart)} years apart. They can only be compared through a long chain of shared teammates, and every link adds doubt.`
-            : width >= 25
-              ? "they never shared a car, so they are compared through other drivers who were teammates of both, or of their teammates."
-              : "both have long careers with many well-measured teammates."}
+        {verdict} The range ({chance.low}% to {chance.high}%) is {widthWord}. What sets its width: {reasons.join("; ")}.
       </p>
       {record && (
         <p>

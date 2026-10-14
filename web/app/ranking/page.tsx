@@ -90,7 +90,7 @@ export default function RankingPage() {
                 </td>
                 <td className="right num">{signed(driver.skill)}%</td>
                 <td className="right num muted hide-phone">
-                  {driver.rankLow}–{driver.rankHigh}
+                  {driver.rankLow === null ? "not ranked" : `${driver.rankLow}–${driver.rankHigh}`}
                 </td>
                 <td className="right num muted hide-phone">{driver.starts}</td>
               </tr>
@@ -100,8 +100,9 @@ export default function RankingPage() {
         {shown.length === 0 && <p className="muted" style={{ padding: 12 }}>No drivers match these filters.</p>}
       </div>
       <p className="muted small" style={{ marginTop: 10 }}>
-        {shown.length} drivers shown. "Could rank" is among all {drivers.length} rated drivers, whatever
-        the filters. Tap a driver for their card.
+        {shown.length} drivers shown. &quot;Could rank&quot; is the middle 90% of plausible ranks among the drivers
+        with at least 30 starts, whatever the filters. Drivers with fewer starts are not ranked: their ratings
+        are mostly guesswork. Tap a driver for their card.
       </p>
     </>
   );

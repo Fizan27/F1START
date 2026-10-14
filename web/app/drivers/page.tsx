@@ -1,10 +1,11 @@
 // app/drivers/page.tsx
 //
-// What it does: the driver card. For one driver: skill with its range,
+// What it does: the driver card. For one driver: skill with its range, the
+//   wet weather adjustment, the "Why this rating" panel,
 //   consistency, peak years, the career curve (skill season by season) and
 //   the record against each teammate.
 //   The driver is chosen by the address: /drivers/?id=senna
-// What it reads: drivers.json and details.json from public/data.
+// What it reads: drivers.json, details.json and explain.json from public/data.
 // Which files use it: none (it is a page). The ranking and head to head
 //   pages link here.
 
@@ -14,7 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
 import DriverPicker from "@/components/DriverPicker";
-import { type Driver, type DriverDetail, signed, skillRange, useData } from "@/lib/data";
+import { type Driver, type DriverDetail, type Explanation, signed, skillRange, useData } from "@/lib/data";
 
 export default function DriversPage() {
   // Next.js needs a page that reads the address to be wrapped like this.
@@ -55,8 +56,17 @@ function DriverCard() {
           <span>peak skill (range {signed(low)} to {signed(high)})</span>
         </div>
         <div className="stat">
-          <b className="num">#{driver.rank}</b>
-          <span>all time (could be {driver.rankLow} to {driver.rankHigh})</span>
+          {driver.rank === null ? (
+            <>
+              <b>Not ranked</b>
+              <span>fewer than 30 starts: too little to rank honestly</span>
+            </>
+          ) : (
+            <>
+              <b className="num">#{driver.rank}</b>
+              <span>of drivers with 30+ starts (could be {driver.rankLow} to {driver.rankHigh})</span>
+            </>
+          )}
         </div>
         <div className="stat">
           <b className="num">
@@ -68,9 +78,24 @@ function DriverCard() {
           <b className="num">{driver.consistency}</b>
           <span>consistency (50 is typical)</span>
         </div>
+        <div className="stat">
+          <b className="num">{signed(driver.wet[0])}%</b>
+          <span>
+            wet weather adjustment (range {signed(driver.wet[0] - 1.645 * driver.wet[1])} to{" "}
+            {signed(driver.wet[0] + 1.645 * driver.wet[1])}), from {driver.wet[2]} wet{" "}
+            {driver.wet[2] === 1 ? "race" : "races"}
+          </span>
+        </div>
       </div>
+      {driver.wet[2] < 8 && (
+        <p className="muted small" style={{ marginTop: -6 }}>
+          The wet adjustment rests on very few wet races, so it stays close to zero and means little.
+          Only 54 races since 1950 are tagged as wet (see About).
+        </p>
+      )}
 
       <div className="stack">
+        <WhyThisRating driverId={driver.id} nameOf={nameOf} onOpen={(other) => router.push(`/drivers/?id=${other}`)} />
         <div className="card">
           <h2>Career curve</h2>
           <CareerChart curve={detail.curve} peak={driver.peak} />
@@ -121,6 +146,69 @@ function DriverCard() {
         </div>
       </div>
     </>
+  );
+}
+
+type WhyProps = { driverId: string; nameOf: (id: string) => string; onOpen: (id: string) => void };
+
+/**
+ * The teammate battles that moved this driver's rating most, and the chain of
+ * teammates linking them to today's grid (made by explain_ratings.py).
+ */
+function WhyThisRating({ driverId, nameOf, onOpen }: WhyProps) {
+  const explain = useData<Record<string, Explanation>>("explain.json");
+  const entry = explain?.[driverId];
+  if (!entry) return null;
+
+  const battles = (rows: Explanation["up"], direction: "up" | "down") => (
+    rows.length === 0 ? <p className="muted small">None that moved it by much.</p> : (
+      <ul className="why-list">
+        {rows.map(([a, b, from, to, races, effect]) => (
+          <li key={`${a}-${b}`}>
+            <span className={direction === "up" ? "delta-up" : "delta-down"}>{signed(effect, 2)}%</span>{" "}
+            <button className="link" onClick={() => onOpen(a === driverId ? b : a)}>
+              {nameOf(a)} vs {nameOf(b)}
+            </button>{" "}
+            <span className="muted small num">{from === to ? from : `${from}–${to}`}, {races} races</span>
+          </li>
+        ))}
+      </ul>
+    ));
+
+  return (
+    <div className="card">
+      <h2>Why this rating</h2>
+      <p className="muted small">
+        How much each pair of teammates&apos; results moves this rating: the rating with those results minus the
+        rating without them (an approximation). Battles this driver was not in still count: they change how
+        good a teammate looks, and that travels along the chain.
+      </p>
+      <div className="grid-2">
+        <div>
+          <h3>Pushed it up</h3>
+          {battles(entry.up, "up")}
+        </div>
+        <div>
+          <h3>Pulled it down</h3>
+          {battles(entry.down, "down")}
+        </div>
+      </div>
+      <h3 style={{ marginTop: 14 }}>Link to today&apos;s grid</h3>
+      {entry.chain.length === 0 ? (
+        <p className="muted small">On today&apos;s grid, or no chain of teammates reaches it.</p>
+      ) : (
+        <p className="small" style={{ lineHeight: 1.9 }}>
+          {nameOf(driverId)}
+          {entry.chain.map(([next, from, to, races]) => (
+            <span key={next}>
+              {" → "}
+              <button className="link" onClick={() => onOpen(next)}>{nameOf(next)}</button>{" "}
+              <span className="muted num">({from === to ? from : `${from}–${to}`}, {races} races)</span>
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
   );
 }
 

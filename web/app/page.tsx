@@ -6,6 +6,8 @@
 //   The race is simulated in the browser (lib/sim.ts) the moment you press
 //   start, so every race is different. The animation then just plays back
 //   the result, which is why "replay" shows exactly the same race again.
+//   The grid comes from a simulated qualifying session, unless you choose to
+//   set the starting order yourself.
 // What it reads: drivers.json, settings.json, circuits/index.json and the
 //   chosen circuit's outline, all from public/data.
 // Which files use it: none (it is the home page).
@@ -16,10 +18,13 @@ import { useEffect, useRef, useState } from "react";
 
 import DriverPicker from "@/components/DriverPicker";
 import { type Circuit, type Driver, type Settings, useData } from "@/lib/data";
-import { isOut, progressAt, type Race, raceLength, simulateRace, towerAt, type TowerRow } from "@/lib/sim";
+import {
+  driverCodes, isOut, progressAt, type Race, raceLength, simulateRace, towerAt, type TowerRow,
+} from "@/lib/sim";
 
 const MAX_CARS = 20;
-const REAL_SECONDS_PER_LAP = 3; // how long one lap takes to watch at 1x speed
+const REAL_SECONDS_PER_LAP = 1.5; // how long one lap takes to watch at 1x speed
+const SPEEDS = [1, 2, 4, 8];
 const TOWER_ROW_HEIGHT = 32;
 const TOWER_UPDATES_PER_SECOND = 6;
 
@@ -30,8 +35,11 @@ const LEGENDS = [
 ];
 
 // Eight hues, used three ways (solid, white ring, hollow) to tell 20 cars
-// apart. Every car also carries its number, so colour is never the only clue.
+// apart. Every dot also carries the driver's code, so colour is never the only clue.
 const HUES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
+
+type Distance = "full" | "half" | "sprint";
+type GridMode = "qualifying" | "custom";
 
 function carLook(car: number): { fill: string; stroke: string; strokeWidth: number } {
   const hue = HUES[car % HUES.length];
@@ -48,6 +56,12 @@ function surname(driver: Driver): string {
 function lapTimeText(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${(seconds - minutes * 60).toFixed(3).padStart(6, "0")}`;
+}
+
+function lapsFor(circuit: Circuit | undefined, distance: Distance): number {
+  if (!circuit) return 15;
+  if (distance === "sprint") return Math.min(15, circuit.raceLaps);
+  return distance === "half" ? Math.round(circuit.raceLaps / 2) : circuit.raceLaps;
 }
 
 /** The x, y on the outline for a car that has done `progress` laps. */
@@ -69,10 +83,12 @@ export default function RacePage() {
 
   const [entrants, setEntrants] = useState<Driver[]>([]);
   const [circuitId, setCircuitId] = useState("silverstone");
-  const [distance, setDistance] = useState<"sprint" | "half" | "full">("sprint");
+  const [distance, setDistance] = useState<Distance>("full");
+  const [gridMode, setGridMode] = useState<GridMode>("qualifying");
+  const [ratingUncertainty, setRatingUncertainty] = useState(false);
   const [phase, setPhase] = useState<"setup" | "racing" | "finished">("setup");
   const [race, setRace] = useState<Race | null>(null);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(2);
   const [paused, setPaused] = useState(false);
   const [tower, setTower] = useState<TowerRow[]>([]);
 
@@ -123,12 +139,14 @@ export default function RacePage() {
 
   if (!drivers || !settings || !circuits) return <p className="muted">Loading drivers...</p>;
 
-  const laps = !circuit ? 15 : distance === "sprint" ? 15 : distance === "half" ? Math.round(circuit.raceLaps / 2) : circuit.raceLaps;
+  const laps = lapsFor(circuit, distance);
+  const codes = driverCodes(entrants.map((driver) => driver.name));
 
   function start() {
     if (!circuit || !settings) return;
     const difficulty = settings.difficulty[circuit.id] ?? 0.5;
-    setRace(simulateRace(entrants, circuit.lapSeconds, laps, difficulty, settings.sim));
+    const grid = gridMode === "custom" ? entrants.map((_, slot) => slot) : undefined;
+    setRace(simulateRace(entrants, circuit.lapSeconds, laps, difficulty, settings.sim, { grid, ratingUncertainty }));
     replay();
   }
 
@@ -147,7 +165,8 @@ export default function RacePage() {
       <Setup
         drivers={drivers} circuits={circuits} entrants={entrants} setEntrants={setEntrants}
         circuitId={circuitId} setCircuitId={setCircuitId} distance={distance} setDistance={setDistance}
-        laps={laps} onStart={start}
+        gridMode={gridMode} setGridMode={setGridMode} ratingUncertainty={ratingUncertainty}
+        setRatingUncertainty={setRatingUncertainty} laps={laps} onStart={start}
       />
     );
   }
@@ -157,7 +176,9 @@ export default function RacePage() {
     <>
       <div className="race-bar">
         <div>
-          <h3 style={{ margin: 0 }}>{circuit?.name}</h3>
+          <h3 style={{ margin: 0 }}>
+            {circuit?.name} · {race!.gridFromQualifying ? "Grid from simulated qualifying" : "Grid: your order"}
+          </h3>
           <div className="lap-counter num">
             {phase === "finished" ? "Chequered flag" : `Lap ${leaderLap} / ${race!.laps}`}
           </div>
@@ -166,7 +187,7 @@ export default function RacePage() {
           {phase === "racing" && (
             <>
               <button onClick={() => setPaused(!paused)}>{paused ? "Resume" : "Pause"}</button>
-              {[1, 2, 4].map((value) => (
+              {SPEEDS.map((value) => (
                 <button key={value} className={`chip ${speed === value ? "on" : ""}`} onClick={() => setSpeed(value)}>
                   {value}×
                 </button>
@@ -188,7 +209,7 @@ export default function RacePage() {
         <div className="stack">
           <div className="card track-card">
             {outline?.points ? (
-              <Track points={outline.points} entrants={entrants} carElements={carElements} />
+              <Track points={outline.points} entrants={entrants} codes={codes} carElements={carElements} />
             ) : (
               <p className="muted">Loading track...</p>
             )}
@@ -229,8 +250,12 @@ type SetupProps = {
   setEntrants: (entrants: Driver[]) => void;
   circuitId: string;
   setCircuitId: (id: string) => void;
-  distance: "sprint" | "half" | "full";
-  setDistance: (distance: "sprint" | "half" | "full") => void;
+  distance: Distance;
+  setDistance: (distance: Distance) => void;
+  gridMode: GridMode;
+  setGridMode: (mode: GridMode) => void;
+  ratingUncertainty: boolean;
+  setRatingUncertainty: (on: boolean) => void;
   laps: number;
   onStart: () => void;
 };
@@ -239,6 +264,8 @@ function Setup(props: SetupProps) {
   const { drivers, circuits, entrants, setEntrants } = props;
   const chosen = new Set(entrants.map((driver) => driver.id));
   const full = entrants.length >= MAX_CARS;
+  const circuit = circuits.find((c) => c.id === props.circuitId);
+  const custom = props.gridMode === "custom";
 
   const presets: [string, () => Driver[]][] = [
     ["Legends", () => pickByIds(drivers, LEGENDS)],
@@ -249,6 +276,13 @@ function Setup(props: SetupProps) {
     }],
     ["Random", () => [...drivers].filter((d) => d.starts >= 30).sort(() => Math.random() - 0.5).slice(0, MAX_CARS)],
   ];
+
+  function move(from: number, to: number) {
+    if (to < 0 || to >= entrants.length) return;
+    const next = [...entrants];
+    [next[from], next[to]] = [next[to], next[from]];
+    setEntrants(next);
+  }
 
   return (
     <>
@@ -265,18 +299,34 @@ function Setup(props: SetupProps) {
             <h3>Circuit</h3>
             <div className="row">
               <select value={props.circuitId} onChange={(event) => props.setCircuitId(event.target.value)} aria-label="Circuit">
-                {[...circuits].sort((a, b) => a.country.localeCompare(b.country)).map((circuit) => (
-                  <option key={circuit.id} value={circuit.id}>
-                    {circuit.country}: {circuit.name}
+                {[...circuits].sort((a, b) => a.country.localeCompare(b.country)).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.country}: {c.name}
                   </option>
                 ))}
               </select>
-              <select value={props.distance} onChange={(event) => props.setDistance(event.target.value as "sprint")} aria-label="Race distance">
-                <option value="sprint">Sprint (15 laps)</option>
+              <select value={props.distance} onChange={(event) => props.setDistance(event.target.value as Distance)} aria-label="Race distance">
+                <option value="full">Full distance ({circuit?.raceLaps} laps)</option>
                 <option value="half">Half distance</option>
-                <option value="full">Full distance</option>
+                <option value="sprint">Sprint (15 laps)</option>
               </select>
             </div>
+          </div>
+          <div>
+            <h3>Starting grid</h3>
+            <div className="row">
+              <button className={`chip ${!custom ? "on" : ""}`} onClick={() => props.setGridMode("qualifying")}>
+                Simulated qualifying
+              </button>
+              <button className={`chip ${custom ? "on" : ""}`} onClick={() => props.setGridMode("custom")}>
+                I'll set the order
+              </button>
+            </div>
+            <p className="muted small" style={{ marginTop: 6, marginBottom: 0 }}>
+              {custom
+                ? "Cars start in the order of your list. Use the arrows to move a driver."
+                : "Each driver sets one qualifying lap. The quickest starts on pole."}
+            </p>
           </div>
           <div>
             <h3>Quick grids</h3>
@@ -297,6 +347,11 @@ function Setup(props: SetupProps) {
               placeholder={full ? "The grid is full" : `Search all ${drivers.length} drivers since 1950...`}
             />
           </div>
+          <label className="row small" style={{ color: "var(--ink-2)" }}>
+            <input type="checkbox" checked={props.ratingUncertainty}
+              onChange={(event) => props.setRatingUncertainty(event.target.checked)} />
+            Include rating uncertainty (drivers with uncertain ratings become less predictable)
+          </label>
           <button className="primary" disabled={entrants.length < 2} onClick={props.onStart}>
             Start race ({props.laps} laps)
           </button>
@@ -304,19 +359,27 @@ function Setup(props: SetupProps) {
 
         <div className="card">
           <h3>
-            Grid ({entrants.length}/{MAX_CARS})
+            {custom ? "Starting order" : "Drivers"} ({entrants.length}/{MAX_CARS})
           </h3>
           {entrants.length === 0 && <p className="muted">No drivers yet. Pick a quick grid or search.</p>}
           <div className="grid-list">
             {entrants.map((driver, car) => (
               <div className="grid-slot" key={driver.id}>
-                <CarBadge car={car} />
+                {custom ? <span className="muted num small">P{car + 1}</span> : <CarSwatch car={car} />}
                 <span>
                   {driver.name} <span className="muted small num">{driver.peak[0]}–{String(driver.peak[1]).slice(2)}</span>
                 </span>
-                <button aria-label={`Remove ${driver.name}`} onClick={() => setEntrants(entrants.filter((d) => d.id !== driver.id))}>
-                  ×
-                </button>
+                <span style={{ whiteSpace: "nowrap" }}>
+                  {custom && (
+                    <>
+                      <button aria-label={`Move ${driver.name} up`} onClick={() => move(car, car - 1)}>↑</button>
+                      <button aria-label={`Move ${driver.name} down`} onClick={() => move(car, car + 1)}>↓</button>
+                    </>
+                  )}
+                  <button aria-label={`Remove ${driver.name}`} onClick={() => setEntrants(entrants.filter((d) => d.id !== driver.id))}>
+                    ×
+                  </button>
+                </span>
               </div>
             ))}
           </div>
@@ -328,22 +391,25 @@ function Setup(props: SetupProps) {
 
 // ---- The pieces of the race screen ------------------------------------------
 
-function CarBadge({ car }: { car: number }) {
+/** The car's colour, as a small square. It carries no number, so it cannot be mistaken for a position. */
+function CarSwatch({ car }: { car: number }) {
   const look = carLook(car);
   return (
-    <span className="badge num" style={{ background: look.fill, boxShadow: `inset 0 0 0 2px ${look.stroke}` }}>
-      {car + 1}
-    </span>
+    <span aria-hidden="true" style={{
+      display: "inline-block", width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+      background: look.fill, boxShadow: `inset 0 0 0 2px ${look.stroke}`,
+    }} />
   );
 }
 
 type TrackProps = {
   points: [number, number][];
   entrants: Driver[];
+  codes: string[];
   carElements: React.MutableRefObject<(SVGGElement | null)[]>;
 };
 
-function Track({ points, entrants, carElements }: TrackProps) {
+function Track({ points, entrants, codes, carElements }: TrackProps) {
   const height = Math.max(...points.map(([, y]) => y));
   const width = Math.max(...points.map(([x]) => x));
   const path = points.map(([x, y]) => `${x},${y}`).join(" ");
@@ -364,8 +430,8 @@ function Track({ points, entrants, carElements }: TrackProps) {
             }}
             transform={`translate(${startX} ${startY})`}
           >
-            <circle r={17} fill={look.fill} stroke={look.stroke} strokeWidth={look.strokeWidth} />
-            <text fill="#ffffff">{car + 1}</text>
+            <circle r={19} fill={look.fill} stroke={look.stroke} strokeWidth={look.strokeWidth} />
+            <text fill="#ffffff" style={{ fontSize: 13 }}>{codes[car]}</text>
           </g>
         );
       })}
@@ -402,7 +468,7 @@ function Tower({ rows, entrants, race }: { rows: TowerRow[]; entrants: Driver[];
             style={{ transform: `translateY(${place * TOWER_ROW_HEIGHT}px)` }}
           >
             <span className="tower-pos num">{place + 1}</span>
-            <CarBadge car={car} />
+            <CarSwatch car={car} />
             <span className="tower-name">{surname(driver)}</span>
             <span className="tower-gap num">
               {row.out ? "OUT" : place === 0 ? (row.lapsDone >= race.laps ? "Winner" : "Leader") : `+${row.gap.toFixed(3)}`}
@@ -427,7 +493,7 @@ function Results({ race, entrants }: { race: Race; entrants: Driver[] }) {
             <tr>
               <th>Pos</th>
               <th>Driver</th>
-              <th>Grid</th>
+              <th>Started</th>
               <th className="hide-phone">Best lap</th>
               <th>Gap</th>
             </tr>
@@ -435,21 +501,20 @@ function Results({ race, entrants }: { race: Race; entrants: Driver[] }) {
           <tbody>
             {race.finishOrder.map((car, place) => {
               const crashed = race.crashLap[car] !== null;
-              const gained = race.grid[car] - place;
+              const gained = race.grid[car] - place; // places gained since the start
               return (
                 <tr key={car}>
                   <td className="num">{place + 1}</td>
                   <td>
                     <span className="row" style={{ flexWrap: "nowrap" }}>
-                      <CarBadge car={car} /> {entrants[car].name}
+                      <CarSwatch car={car} /> {entrants[car].name}
                     </span>
                   </td>
-                  <td className="num">
+                  <td className="num" style={{ whiteSpace: "nowrap" }}>
                     {race.grid[car] + 1}{" "}
-                    {gained !== 0 && !crashed && (
+                    {!crashed && gained !== 0 && (
                       <span className={gained > 0 ? "delta-up" : "delta-down"}>
-                        {gained > 0 ? "▲" : "▼"}
-                        {Math.abs(gained)}
+                        {gained > 0 ? `+${gained}` : `−${-gained}`}
                       </span>
                     )}
                   </td>
@@ -470,6 +535,9 @@ function Results({ race, entrants }: { race: Race; entrants: Driver[] }) {
           </tbody>
         </table>
       </div>
+      <p className="muted small" style={{ marginTop: 8, marginBottom: 0 }}>
+        Started = grid position. +3 means three places gained during the race, −3 three places lost.
+      </p>
     </div>
   );
 }

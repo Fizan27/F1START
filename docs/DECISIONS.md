@@ -498,3 +498,139 @@ margins (0.2s to 1.6s) the field finished in grid order with every gap exactly
 0.4s. The margins were lowered to 0.1s to 1.2s, a stuck car now follows between
 one and two following gaps behind, and the form setting was recalibrated
 (0.32% to 0.33%) so the simulation still matches the model (number 22).
+
+## 26. Why Hamilton's rank range was 5 to 134 while Schumacher's was 1 to 2
+
+The owner spotted this. Three things combined, and none of them was a fault
+in the Laplace approximation itself (number 32 checks that separately):
+
+1. **Ranks were counted among all 655 drivers**, including hundreds with a
+   handful of races. Their ratings are close to pure prior: centred near an
+   average newcomer, give or take 0.3%. In any one of the 4,000 plausible
+   versions of the ratings, dozens of them land by chance above a driver
+   rated +0.65%. That pushed the bottom of every mid-table driver's range
+   far down, and Hamilton sits in the most crowded part of the list.
+2. **Schumacher is an outlier.** His peak (+1.41%) was about 0.47% above
+   the next driver, more than twice his own uncertainty, so almost no
+   plausible version put anyone above him. A wide range for Hamilton and a
+   narrow one for Schumacher were both correct answers to the question that
+   was asked; the question (rank among everyone) was the problem.
+3. **Hamilton's own uncertainty is larger than his 396 races suggest**,
+   because the season drift setting (0.18%) lets each season's skill move,
+   so each season is measured mainly from that season's teammate, and his
+   peak (2015 to 2017) rests on Rosberg and then Bottas.
+
+Fixes:
+
+- Ranks and rank ranges are now among drivers with at least 30 starts (the
+  same drivers as the head to head page). Drivers below that are shown as
+  "not ranked": their ratings are mostly guesswork, and saying so is more
+  honest than giving them a rank.
+- The head to head explanation picked its wording from the years between
+  the two drivers' peaks and could say a range was "fairly narrow" because
+  they were 21 years apart, which is backwards. It now judges the width
+  from the range itself, then lists the real reasons: whether they were
+  teammates (which narrows it), how many years separate them (which widens
+  it), and whether either driver's own rating is uncertain and why.
+
+## 27. Calibration: one learned temperature, and an honest mixed result
+
+The brief said the model was too cautious, from the 2024 and 2025 table
+where favourites given 80% or more won 39 out of 39. To fix this properly
+the scale was learned from many seasons, not from that table: every race
+probability is now computed with the slope multiplied by a "temperature",
+chosen to minimise log loss on the rolling backtest's predictions
+(number 29).
+
+- Fitted on 2010 to 2023 predictions only: **0.45**. Below 1 means the
+  raw model was too CONFIDENT, the opposite of the brief's starting point.
+- On the 2024 and 2025 test, that temperature made things worse: Brier
+  score 0.2045 before, 0.2169 after; log loss 0.5939 before, 0.6250 after.
+- The reason is drift over time. Fitted on separate stretches of seasons,
+  the best temperature was 0.25 for 2010 to 2015, 0.40 for 2016 to 2019,
+  0.90 for 2018 to 2023 and 1.10 for 2020 to 2023. Recent seasons need
+  almost no softening; older ones need a lot. The 39 out of 39 bucket was
+  a real sign of under-confidence in recent seasons, but not a sign that
+  the model is under-confident in general.
+- What is used, and why: the rule set in advance was to fit on earlier
+  seasons, so the 2024 and 2025 test uses 0.45 and its worse result is
+  reported as it is (`model.TEST_TEMPERATURE`). After the test, the site
+  refits the temperature on every season 2010 to 2025, as the model itself
+  is refitted on all data: **0.55** (`model.RACE_TEMPERATURE`). Fitting it on
+  recent seasons only would probably serve modern drivers better, but that
+  idea was suggested by the test result, so adopting it now would be tuning
+  on the test. It is recorded here as the next thing to try.
+- Where it applies: to probabilities the site states about real drivers
+  (head to heads, the backtest). It does not apply to the race simulator,
+  which treats each driver's skill as known and is calibrated to the
+  model's fitted slope (number 33).
+- Accuracy is unchanged by any temperature: it never changes which driver
+  is the favourite, only how sure the model says it is.
+
+## 28. Team orders and weak teammates: both tested, neither kept
+
+Two ways a driver can be flattered by their teammates were each tested in
+the rolling backtest (number 29), judged by race log loss pooled over all
+2,728 comparisons from 2010 to 2025. A change was kept only if it did not
+make that worse.
+
+- **Documented team orders** (`NUMBER_ONE_SEASONS` in model.py): a hand
+  made list of team-seasons with a contracted or publicly reported number
+  one (Lotus 1978, Williams 1992, Benetton 1994 to 1995, Ferrari 1996 to
+  2005 and 2010 to 2013, Red Bull 2021 to 2024). For those pairs the race
+  result is left out, because it may have been arranged; qualifying still
+  counts. Result: accuracy unchanged (59.6%), log loss slightly worse
+  (0.6777 against 0.6765). **Not kept.** A likely reason: future races are
+  run under the same team orders, so leaving those results out removes
+  information that predicts them.
+- **Weak teammates.** The prior assumed every newcomer starts near average,
+  which flatters a driver whose teammates had short careers (they were
+  probably below average, which is why their careers were short). The fix:
+  a driver's expected starting level rises with the logarithm of how many
+  seasons they have in the data, by a learned amount (it came out at 0.27).
+  Result: accuracy up from 59.6% to 60.5%, but log loss worse (0.6812) and
+  qualifying log loss worse too. Better at picking the winner, worse at
+  saying how sure it is. **Not kept**, by the rule above. Worth revisiting.
+- The two together with the wet adjustment scored 60.0% with log loss
+  0.6835, also worse.
+
+The weakness stays in the README: a driver measured only against weak
+teammates, or against a number two, can still be flattered.
+
+## 29. The rolling backtest: every season from 2010 to 2025
+
+`backtest.py` fits the model on all seasons before a test season and
+predicts that season's teammate results, for each of 16 seasons and each
+version of the model. It is a far bigger test than 2024 and 2025 alone:
+2,728 race comparisons.
+
+Pooled over all 16 seasons, the chosen (base) model calls 59.6% of race
+results correctly, against 59.3% for "last season's head to head repeats,
+otherwise more career points" and 57.9% for "more career points" alone.
+So over many seasons the model is only slightly better than the best simple
+rule. Its advantage is concentrated in seasons with many new pairings: in
+2025 it scored 65.9% against 57.8%. In some seasons (2019, 2022) it did
+worse than the baseline. The chart is docs/backtest.png, and it is also on
+the About page.
+
+The 2025 figure differs from number 21's 68.6% because here 2025 is
+predicted from a fit up to 2024, not 2023. Both are honest out-of-sample
+numbers for different set-ups.
+
+## 30. Wet weather: tagged races, a separate adjustment, and how little data there is
+
+`wet_races.py` tags 54 wet races: 17 measured since 2018 (at least 10% of
+laps on intermediate or wet tyres) and 37 from a hand-made list of well
+known wet races before 2018. The list was written from memory of well
+documented races; it is incomplete, and races that were wet for only a few
+laps are left out on purpose. The script refuses to run if any entry does
+not match exactly one race.
+
+The model can add a per-driver wet adjustment (prior: give or take 0.25%,
+an assumption) that applies to race results in wet races only. In the
+backtest this made predictions slightly worse (log loss 0.6788 against
+0.6765), so the main ratings do not use it. The adjustment is fitted
+separately and shown on driver pages as an exploratory estimate, with its
+range and the number of wet races behind it. Most drivers have fewer than
+8 wet races against a teammate, so their adjustment barely moves from zero,
+and the page says so.

@@ -50,14 +50,27 @@ RACE = ["Year", "Round"]
 # --- Predictions -------------------------------------------------------------
 
 def predict_pairs(fit: model.Fit, pairs: pl.DataFrame) -> pl.DataFrame:
-    """Add the model's chance that A beats B in the race and in qualifying."""
-    race, quali = [], []
+    """Add the model's chance that A beats B in the race and in qualifying.
+
+    ModelRace uses the calibration temperature (model.TEST_TEMPERATURE, fitted
+    by backtest.py on 2010 to 2023 only); ModelRaceUncalibrated does not, so
+    the two can be compared. Temperature never changes which driver is the
+    favourite, so accuracy is the same for both; only the probabilities move.
+    """
+    race, raw, quali = [], [], []
     slope_quali = model.AHEAD_SLOPE_PER_NOISE / fit.scales["quali_noise"]
     for driver_a, driver_b, year in pairs.select("DriverA", "DriverB", "Year").iter_rows():
         gap, variance = model.skill_gap(fit, driver_a, driver_b, year)
-        race.append(model.chance_ahead(gap, variance, fit.scales["race_slope"]))
+        race.append(model.race_chance(fit, gap, variance, temperature=model.TEST_TEMPERATURE))
+        raw.append(model.race_chance(fit, gap, variance, temperature=1.0))
         quali.append(model.chance_ahead(gap, variance, slope_quali))
-    return pairs.with_columns(pl.Series("ModelRace", race), pl.Series("ModelQuali", quali))
+    return pairs.with_columns(pl.Series("ModelRace", race), pl.Series("ModelRaceUncalibrated", raw),
+                              pl.Series("ModelQuali", quali))
+
+
+def brier(chance: pl.Series, a_was_ahead: pl.Series) -> float:
+    """Average squared miss of the probability (lower is better; a coin flip scores 0.25)."""
+    return float(((chance - a_was_ahead.cast(pl.Float64)) ** 2).mean())
 
 
 def career_points_chance(pairs: pl.DataFrame, results: pl.DataFrame, until: int) -> pl.Series:
@@ -279,7 +292,7 @@ def main():
         spread, drift = tune(pairs, pace)
 
     print(f"\nFitting on results up to {TRAIN_UNTIL} (skill spread {spread}, season drift {drift})...")
-    fit = model.fit_model(pairs, pace, TRAIN_UNTIL, spread, drift)
+    fit = model.fit_model(pairs, pace, TRAIN_UNTIL, spread, drift, wet_races=model.load_wet_races())
     print(f"{len(fit.index):,} driver-seasons fitted on {model.DEVICE}")
     print("Learned scales:", {name: round(value, 3) for name, value in fit.scales.items()})
 
@@ -299,12 +312,20 @@ def main():
             print_teammate_scores(year, kind, teammate_scores[f"{year} {kind}"])
 
     print("\n=== Test 2: are the probabilities honest? (2024 and 2025 together) ===")
+    print(f"Calibration temperature {model.TEST_TEMPERATURE} (fitted by backtest.py on 2010 to 2023 only)")
     calibrations = {}
-    for kind, target, column in (("race", "AAheadRace", "ModelRace"),
-                                 ("qualifying", "AAheadQuali", "ModelQuali")):
-        calibrations[kind] = calibration(predicted, target, column)
-        print(f"\n{kind}:")
-        print(calibrations[kind])
+    raced = predicted.filter(pl.col("AAheadRace").is_not_null())
+    probability_scores = {}
+    for label, column in (("before", "ModelRaceUncalibrated"), ("after", "ModelRace")):
+        calibrations[label] = calibration(predicted, "AAheadRace", column)
+        probability_scores[label] = {"brier": brier(raced[column], raced["AAheadRace"]),
+                                     "log_loss": log_loss(raced[column], raced["AAheadRace"])}
+        print(f"\nrace, {label} calibration: Brier {probability_scores[label]['brier']:.4f}, "
+              f"log loss {probability_scores[label]['log_loss']:.4f}")
+        print(calibrations[label])
+    calibrations["qualifying"] = calibration(predicted, "AAheadQuali", "ModelQuali")
+    print("\nqualifying:")
+    print(calibrations["qualifying"])
 
     print("\n=== Test 3: finishing positions, predicted from 2023 only ===")
     position_scores = {}
@@ -320,7 +341,9 @@ def main():
     JSON_FILE.write_text(json.dumps({
         "trainedUntil": TRAIN_UNTIL, "testYears": TEST_YEARS,
         "teammates": teammate_scores,
+        "temperature": model.TEST_TEMPERATURE,
         "calibration": {kind: table.to_dicts() for kind, table in calibrations.items()},
+        "probabilityScores": probability_scores,
         "positions": {str(year): scores for year, scores in position_scores.items()},
     }, indent=1), encoding="utf-8")
     print(f"Numbers saved to {JSON_FILE}")

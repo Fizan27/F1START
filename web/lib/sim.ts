@@ -3,15 +3,22 @@
 // What it does: simulates one equal car race in the browser. It is the same
 //   race as simulate.py (the GPU version), rewritten for a single race, and it
 //   uses the same numbers: they arrive in settings.json, so the two cannot
-//   drift apart.
+//   drift apart on settings. test_simulate.py and check_simulator.py test the
+//   rules in their Python form.
 // What it reads: nothing. The race page passes in the drivers and settings.
 // What it produces: a Race: every car's time at the end of every lap, which is
 //   all the animation and the timing tower need.
-// Which files use it: app/page.tsx (the fantasy race).
+// Which files use it: app/page.tsx (the fantasy race) and app/api/chat (the
+//   assistant's simulate_race tool).
 
 import type { SimSettings } from "./data";
 
 export type Entrant = { skill: number; sd: number; consistency: number };
+
+export type RaceOptions = {
+  grid?: number[]; // a starting slot per car (0 = pole). Without it, qualifying is simulated.
+  ratingUncertainty?: boolean; // also draw a plausible value of each uncertain rating
+};
 
 export type Race = {
   laps: number;
@@ -19,6 +26,7 @@ export type Race = {
   // lineTimes[car][0] is when it leaves the grid (pole leaves at 0).
   lineTimes: number[][];
   grid: number[]; // grid slot of each car, 0 = pole
+  gridFromQualifying: boolean; // false when the user set the grid
   crashLap: (number | null)[]; // the lap a car crashed on, or null
   bestLap: number[]; // each car's quickest lap in seconds
   finishOrder: number[]; // car numbers, winner first
@@ -35,28 +43,45 @@ function errorFactor(consistency: number): number {
   return 2 ** ((50 - consistency) / 25);
 }
 
+/** Pace advantage (seconds a lap) that gives an even chance of passing. Same as simulate.py. */
 export function passMargin(difficulty: number, s: SimSettings): number {
   return s.passMarginEasy + difficulty * (s.passMarginHard - s.passMarginEasy);
 }
 
+/** The chance of getting past on one lap. An S-curve of pace advantage against the circuit's margin. */
+function passChance(advantage: number, margin: number, s: SimSettings): number {
+  return 1 / (1 + Math.exp(-(advantage - margin) / s.passSpread));
+}
+
 export function simulateRace(
   entrants: Entrant[], lapSeconds: number, laps: number, difficulty: number, s: SimSettings,
+  options: RaceOptions = {},
 ): Race {
   const count = entrants.length;
   const cars = entrants.map((_, car) => car);
   const percent = lapSeconds / 100; // one percent of a lap, in seconds
   const margin = passMargin(difficulty, s);
 
-  // Each race draws a plausible version of every rating (it is uncertain)
-  // and a form for the day. This is why no two races are the same.
-  const pace = entrants.map((e) => lapSeconds - (e.skill + bell() * e.sd + bell() * s.formSd) * percent);
+  // Each driver's form for the day: the main source of luck, lasting all race.
+  const form = cars.map(() => bell() * s.formSd);
+  const skill = entrants.map((e) => e.skill + (options.ratingUncertainty ? bell() * e.sd : 0));
+  const pace = cars.map((car) => lapSeconds - (skill[car] + form[car]) * percent);
   const errors = entrants.map((e) => errorFactor(e.consistency));
 
-  // Qualifying: one lap each. The quickest starts first.
-  const qualiLap = pace.map((p) => p + bell() * s.qualiNoise * percent);
-  const qualiOrder = [...cars].sort((a, b) => qualiLap[a] - qualiLap[b]);
-  const grid = new Array<number>(count);
-  qualiOrder.forEach((car, slot) => (grid[car] = slot));
+  let grid: number[];
+  if (options.grid) {
+    grid = options.grid;
+  } else {
+    // Qualifying form is only partly the same as race form (see simulate.py).
+    const link = s.qualiFormLink;
+    const qualiLap = cars.map((car) => {
+      const qualiForm = link * form[car] + Math.sqrt(1 - link * link) * bell() * s.formSd;
+      return lapSeconds - (skill[car] + qualiForm) * percent + bell() * s.qualiNoise * percent;
+    });
+    const order = [...cars].sort((a, b) => qualiLap[a] - qualiLap[b]);
+    grid = new Array<number>(count);
+    order.forEach((car, slot) => (grid[car] = slot));
+  }
 
   const raceTime = grid.map((slot) => slot * s.gridGapSeconds);
   const lineTimes = raceTime.map((time) => [time]);
@@ -64,24 +89,24 @@ export function simulateRace(
   const bestLap = new Array<number>(count).fill(Infinity);
 
   for (let lap = 1; lap <= laps; lap++) {
+    // A small lap to lap noise, and now and then a mistake.
     const lapTime = cars.map((car) => {
       const mistake = Math.random() < s.mistakeChance * errors[car]
         ? -Math.log(1 - Math.random()) * s.mistakeSeconds : 0;
       return pace[car] + bell() * s.lapNoise * percent * errors[car] + mistake;
     });
 
-    // Take the cars in the order they started the lap. A car only gets past
-    // the one in front if it was quicker by more than the passing margin;
-    // otherwise it ends the lap stuck just behind (see hold_up in simulate.py).
+    // Front to back: a car that catches the one ahead gets past only if it
+    // wins a draw against the passing chance (see hold_up in simulate.py).
     const running = cars.filter((car) => crashLap[car] === null).sort((a, b) => raceTime[a] - raceTime[b]);
     let ahead = -1;
     for (const car of running) {
       let finish = raceTime[car] + lapTime[car];
       if (ahead >= 0) {
-        const wouldPass = finish < raceTime[ahead] + s.followGapSeconds;
-        const fastEnough = lapTime[ahead] - lapTime[car] > margin;
-        // A stuck car follows between one and two following gaps behind.
-        if (wouldPass && !fastEnough) finish = raceTime[ahead] + s.followGapSeconds * (1 + Math.random());
+        const catching = finish < raceTime[ahead] + s.followGapSeconds;
+        const passes = Math.random() < passChance(pace[ahead] - pace[car], margin, s)
+          || lapTime[ahead] - lapTime[car] > margin + 1.0; // the car ahead made a big mistake
+        if (catching && !passes) finish = raceTime[ahead] + s.followGapSeconds * (1 + Math.random());
       }
       bestLap[car] = Math.min(bestLap[car], finish - raceTime[car]);
       raceTime[car] = finish;
@@ -102,7 +127,7 @@ export function simulateRace(
     if (crashB === null) return 1;
     return crashB - crashA;
   });
-  return { laps, lineTimes, grid, crashLap, bestLap, finishOrder };
+  return { laps, lineTimes, grid, gridFromQualifying: !options.grid, crashLap, bestLap, finishOrder };
 }
 
 /**
@@ -155,4 +180,13 @@ export function towerAt(race: Race, time: number): TowerRow[] {
     const gap = race.lineTimes[row.car][lapsDone] - race.lineTimes[leader][lapsDone];
     return { car: row.car, out: row.out, lapsDone, gap };
   });
+}
+
+/** A short code for a driver for the dots on the track: "VER", "HAM", "SCH". */
+export function driverCodes(names: string[]): string[] {
+  const plain = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z]/g, "");
+  const codes = names.map((name) => plain(name.split(" ").slice(-1)[0]).slice(0, 3).toUpperCase());
+  // Two drivers with the same code (Schumacher and Schumacher) get a first-name initial.
+  return codes.map((code, i) =>
+    codes.filter((other) => other === code).length > 1 ? plain(names[i])[0].toUpperCase() + code.slice(0, 2) : code);
 }

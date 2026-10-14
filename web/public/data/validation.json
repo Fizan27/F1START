@@ -8,7 +8,7 @@
   "2024 race": {
    "comparisons": 191,
    "model": 0.6544502617801047,
-   "model_log_loss": 0.5924530661806022,
+   "model_log_loss": 0.6283391534124803,
    "career_points": 0.6596858638743456,
    "last_season_or_points": 0.6596858638743456,
    "same_pair_comparisons": 185,
@@ -28,7 +28,7 @@
   "2025 race": {
    "comparisons": 185,
    "model": 0.6864864864864865,
-   "model_log_loss": 0.5954865718747092,
+   "model_log_loss": 0.6215265736672834,
    "career_points": 0.5783783783783784,
    "last_season_or_points": 0.5783783783783784,
    "same_pair_comparisons": 38,
@@ -48,7 +48,7 @@
   "both race": {
    "comparisons": 376,
    "model": 0.6702127659574468,
-   "model_log_loss": 0.5939456155247775,
+   "model_log_loss": 0.624987219229339,
    "career_points": 0.6196808510638298,
    "last_season_or_points": 0.6196808510638298,
    "same_pair_comparisons": 223,
@@ -66,8 +66,9 @@
    "same_pair_model": 0.703971119133574
   }
  },
+ "temperature": 0.45,
  "calibration": {
-  "race": [
+  "before": [
    {
     "model_said": "50-60%",
     "comparisons": 145,
@@ -90,6 +91,26 @@
     "model_said": "80%+",
     "comparisons": 39,
     "average_said_%": 81.6,
+    "favourite_won_%": 100.0
+   }
+  ],
+  "after": [
+   {
+    "model_said": "50-60%",
+    "comparisons": 245,
+    "average_said_%": 54.9,
+    "favourite_won_%": 57.1
+   },
+   {
+    "model_said": "60-70%",
+    "comparisons": 130,
+    "average_said_%": 64.2,
+    "favourite_won_%": 85.4
+   },
+   {
+    "model_said": "70-80%",
+    "comparisons": 1,
+    "average_said_%": 78.5,
     "favourite_won_%": 100.0
    }
   ],
@@ -120,11 +141,21 @@
    }
   ]
  },
+ "probabilityScores": {
+  "before": {
+   "brier": 0.20448664094617117,
+   "log_loss": 0.5939456155247775
+  },
+  "after": {
+   "brier": 0.21691076834482065,
+   "log_loss": 0.624987219229339
+  }
+ },
  "positions": {
   "2024": {
    "Model (car + driver)": {
     "average_miss_places": 3.152941176470588,
-    "rank_correlation": 0.6705453892083147
+    "rank_correlation": 0.670545389208315
    },
    "Car only": {
     "average_miss_places": 3.48,
@@ -132,21 +163,21 @@
    },
    "Last season's standings": {
     "average_miss_places": 3.3411764705882354,
-    "rank_correlation": 0.6490727384364882
+    "rank_correlation": 0.649072738436488
    }
   },
   "2025": {
    "Model (car + driver)": {
     "average_miss_places": 4.405727923627685,
-    "rank_correlation": 0.41140024835845274
+    "rank_correlation": 0.4114002483584527
    },
    "Car only": {
     "average_miss_places": 4.637231503579952,
-    "rank_correlation": 0.3546645411863328
+    "rank_correlation": 0.3546645411863329
    },
    "Last season's standings": {
     "average_miss_places": 3.6062052505966586,
-    "rank_correlation": 0.5383178879997489
+    "rank_correlation": 0.5383178879997487
    }
   }
  }

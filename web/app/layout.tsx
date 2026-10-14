@@ -8,6 +8,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import Nav from "@/components/Nav";
+import PitWall from "@/components/PitWall";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <Nav />
         <main>{children}</main>
+        <PitWall />
         <footer>
           Races are simulated from a statistical model, not real results. Comparisons across eras are
           uncertain. Data: Jolpica F1 API and FastF1. Not affiliated with Formula 1.

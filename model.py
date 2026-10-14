@@ -13,15 +13,21 @@
 #     4. Find the skills that best explain every teammate comparison since
 #        1950 (the "fit").
 #     5. Measure how far each skill could move without the explanation
-#        getting much worse (the "uncertainty").
+#        getting much worse (the "uncertainty"). sample_posterior.py checks
+#        this step with a sampler that makes fewer assumptions.
 #
-# What it reads: data/teammate_pairs.parquet and data/race_pace.parquet.
+#   Three optional parts, each tested by backtest.py before being switched on
+#   (see Options below): documented team orders, a weak-teammate correction,
+#   and a separate skill adjustment for wet races.
+#
+# What it reads: data/teammate_pairs.parquet, data/race_pace.parquet and
+#   data/wet_races.parquet.
 # What it produces: nothing on disk by itself. fit_model() returns a Fit
 #   object holding the skills and their uncertainty.
-# Which files use it: validate_model.py (tests it on 2024 and 2025) and
-#   fit_ratings.py (the final ratings).
+# Which files use it: backtest.py, validate_model.py, fit_ratings.py,
+#   sample_posterior.py and explain_ratings.py.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
@@ -29,6 +35,7 @@ import torch
 
 PAIRS_FILE = Path("data/teammate_pairs.parquet")
 PACE_FILE = Path("data/race_pace.parquet")
+WET_FILE = Path("data/wet_races.parquet")
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # 64 bit numbers: the uncertainty step inverts a large matrix, and 32 bit
@@ -45,13 +52,18 @@ MIN_CLEAN_LAPS = 15  # a race pace needs at least this many laps behind it
 TAIL_WEIGHT = 4.0
 
 # The two numbers that say how much drivers differ and how fast they change.
-# They are chosen in validate_model.py using only seasons up to 2023.
+# They were chosen in validate_model.py using only seasons up to 2023.
 DEFAULT_SKILL_SPREAD = 0.3  # spread of skill between drivers, in percent
 DEFAULT_SEASON_DRIFT = 0.18  # typical change in a driver's skill per season
 
 # How much the level of the average newcomer may differ from one decade to
-# the next. This is an ASSUMPTION, not a measurement: see DECISIONS.md 17.
+# the next. This is an ASSUMPTION, not a measurement: see DECISIONS.md 17,
+# and sensitivity.py for what happens with other values.
 ERA_DRIFT = 0.1
+
+# How far a driver's wet weather skill may plausibly differ from their dry
+# skill, before seeing any wet race. An assumption: see DECISIONS.md 30.
+WET_SPREAD = 0.25
 
 # Qualifying before 2006 was run in formats (one lap each, race fuel on
 # board) that made the gap between teammates noisier, so it gets its own
@@ -66,8 +78,42 @@ FIRST_MODERN_QUALI_YEAR = 2006
 # Why it must be tied and not learned freely: DECISIONS.md 16.
 AHEAD_SLOPE_PER_NOISE = 1.5
 
+# How confident the race predictions should be: every race chance is
+# computed with the slope multiplied by this. Below 1 means the raw model was
+# too confident when predicting seasons it had not seen. See DECISIONS.md 27.
+# TEST_TEMPERATURE was fitted by backtest.py on 2010 to 2023 predictions only,
+# and is what the 2024 and 2025 test uses. RACE_TEMPERATURE is the same fit on
+# every season 2010 to 2025, made only after that test was reported (the same
+# rule as refitting the model on all data), and is what the website uses.
+TEST_TEMPERATURE = 0.45
+RACE_TEMPERATURE = 0.55
+
+# Team-seasons where one driver was the documented number one, with the
+# other car under contract or under publicly reported team orders to support
+# them. In these, the RACE result between the two may have been arranged, so
+# it can be left out (qualifying still counts). Hand made from well known,
+# widely reported cases; not complete. See DECISIONS.md 28.
+NUMBER_ONE_SEASONS = {
+    **{(year, "lotus"): "andretti" for year in [1978]},  # Peterson's contract
+    **{(year, "williams"): "mansell" for year in [1992]},
+    **{(year, "benetton"): "michael_schumacher" for year in [1994, 1995]},
+    **{(year, "ferrari"): "michael_schumacher" for year in range(1996, 2006)},  # Irvine, then Barrichello
+    **{(year, "ferrari"): "alonso" for year in range(2010, 2014)},  # Massa ("Fernando is faster than you")
+    **{(year, "red_bull"): "max_verstappen" for year in range(2021, 2025)},  # Pérez
+}
+
 KINDS = ["race_ahead", "quali_ahead", "quali_gap", "old_quali_gap", "pace_gap"]
 SCALE_NAMES = ["race_slope", "pace_factor", "quali_noise", "old_quali_noise", "pace_noise"]
+# The wet adjustment applies to race results only (qualifying may have been dry).
+WET_KINDS = ["race_ahead", "pace_gap"]
+
+
+@dataclass
+class Options:
+    """The optional parts of the model. Each is kept only if backtest.py shows it does not hurt."""
+    number_one: bool = False  # leave out race results arranged by documented team orders
+    career_prior: bool = False  # drivers with short careers start from a lower expected skill
+    wet: bool = False  # a separate skill adjustment for each driver in wet races
 
 
 @dataclass
@@ -76,49 +122,78 @@ class Fit:
     index: dict  # (driver, season) -> position in the skill list
     skill: torch.Tensor  # best estimate of each driver-season's skill
     era_level: dict  # decade -> level of the average newcomer (latest decade = 0)
-    covariance: torch.Tensor  # how uncertain the skills are, and how they move together
+    covariance: torch.Tensor  # how uncertain all the unknowns are, and how they move together
     scales: dict  # the learned link between skill gaps and results
     skill_spread: float
     season_drift: float
+    options: Options = field(default_factory=Options)
+    wet: dict = field(default_factory=dict)  # driver -> (wet adjustment, its uncertainty, wet races)
+    career_weight: float = 0.0  # the learned weak-teammate correction (Options.career_prior)
+    layout: dict = field(default_factory=dict)  # where each part sits in the list of unknowns
+    data: dict = field(default_factory=dict)  # the comparisons, kept for sampling and explanations
 
 
 # --- Step 1: turn the tables into comparisons the model can read -----------
 
-def build_comparisons(pairs: pl.DataFrame, pace: pl.DataFrame, last_year: int) -> pl.DataFrame:
+def build_comparisons(pairs: pl.DataFrame, pace: pl.DataFrame, last_year: int,
+                      wet_races: pl.DataFrame | None = None, options: Options | None = None) -> pl.DataFrame:
     """One row per teammate pair per race, up to `last_year`, with up to five results.
 
-    race_ahead:  1 if A finished ahead, 0 if B did (empty if a car failed).
+    race_ahead:  1 if A finished ahead, 0 if B did (empty if a car failed, or
+                 if the result was arranged by documented team orders and
+                 Options.number_one is on).
     quali_gap:   A's qualifying lap against B's, in percent (negative = A faster).
                  Before 2006 it goes in old_quali_gap instead (noisier formats).
     quali_ahead: 1 if A qualified ahead. Only used when there is no usable
                  lap time gap, so the same lap is never counted twice.
     pace_gap:    A's race pace against B's, in percent (2018 onwards).
+    wet:         1 if the race was wet (see wet_races.py).
     weight:      each driver's comparisons in one race add up to 1. Without
                  this, a 1950s constructor with 10 cars would give each of its
                  drivers 9 comparisons per race and drown out everyone else.
     """
+    options = options or Options()
     driver_pace = pace.filter(pl.col("CleanLaps") >= MIN_CLEAN_LAPS).select(
         "Year", "Round", "DriverId", "PacePct"
     )
     believable = (pl.col("QualiGapPct").abs() <= MAX_BELIEVABLE_GAP).fill_null(False)
     modern = pl.col("Year") >= FIRST_MODERN_QUALI_YEAR
     pace_gap = pl.col("PaceA") - pl.col("PaceB")
-    return (
+    table = (
         pairs.filter(pl.col("Year") <= last_year)
         .join(driver_pace.rename({"DriverId": "DriverA", "PacePct": "PaceA"}),
               on=["Year", "Round", "DriverA"], how="left")
         .join(driver_pace.rename({"DriverId": "DriverB", "PacePct": "PaceB"}),
               on=["Year", "Round", "DriverB"], how="left")
-        .select(
-            "Year", "Round", "DriverA", "DriverB",
-            pl.col("AAheadRace").cast(pl.Float64).alias("race_ahead"),
-            pl.when(~believable).then(pl.col("AAheadQuali").cast(pl.Float64)).alias("quali_ahead"),
-            pl.when(believable & modern).then(pl.col("QualiGapPct")).alias("quali_gap"),
-            pl.when(believable & ~modern).then(pl.col("QualiGapPct")).alias("old_quali_gap"),
-            pl.when(pace_gap.abs() <= MAX_BELIEVABLE_GAP).then(pace_gap).alias("pace_gap"),
-            (1.0 / (pl.col("TeamCars") - 1)).alias("weight"),
-        )
+        .with_columns(arranged_by_team_orders(pairs) if options.number_one else pl.lit(False).alias("arranged"))
     )
+    wet = pl.lit(0.0)
+    if wet_races is not None:
+        table = table.join(wet_races.select("Year", "Round", pl.lit(1.0).alias("is_wet")),
+                           on=["Year", "Round"], how="left")
+        wet = pl.col("is_wet").fill_null(0.0)
+    return table.select(
+        "Year", "Round", "DriverA", "DriverB",
+        pl.when(~pl.col("arranged")).then(pl.col("AAheadRace").cast(pl.Float64)).alias("race_ahead"),
+        pl.when(~believable).then(pl.col("AAheadQuali").cast(pl.Float64)).alias("quali_ahead"),
+        pl.when(believable & modern).then(pl.col("QualiGapPct")).alias("quali_gap"),
+        pl.when(believable & ~modern).then(pl.col("QualiGapPct")).alias("old_quali_gap"),
+        pl.when(pace_gap.abs() <= MAX_BELIEVABLE_GAP).then(pace_gap).alias("pace_gap"),
+        wet.alias("wet"),
+        (1.0 / (pl.col("TeamCars") - 1)).alias("weight"),
+    )
+
+
+def arranged_by_team_orders(pairs: pl.DataFrame) -> pl.Expr:
+    """True for pairs in a documented number-one team-season that include the number one."""
+    if "TeamId" not in pairs.columns:
+        return pl.lit(False).alias("arranged")
+    keys = [f"{year}|{team}|{driver}" for (year, team), driver in NUMBER_ONE_SEASONS.items()]
+
+    def key(driver):
+        return pl.concat_str([pl.col("Year").cast(pl.String), pl.col("TeamId"), pl.col(driver)], separator="|")
+
+    return (key("DriverA").is_in(keys) | key("DriverB").is_in(keys)).alias("arranged")
 
 
 def driver_season_index(comparisons: pl.DataFrame) -> dict:
@@ -129,19 +204,33 @@ def driver_season_index(comparisons: pl.DataFrame) -> dict:
     return {key: position for position, key in enumerate(seasons.iter_rows())}
 
 
-def to_tensors(comparisons: pl.DataFrame, index: dict) -> dict:
-    """For each kind of result: which two skills are compared, the result, the weight."""
+def to_tensors(comparisons: pl.DataFrame, index: dict, drivers: list[str]) -> dict:
+    """For each kind of result: which two skills are compared, the result, the weight.
+
+    Also which two DRIVERS (not driver-seasons) are compared and whether the
+    race was wet, for the wet adjustment, which is one number per driver.
+    """
+    driver_position = {driver: position for position, driver in enumerate(drivers)}
     a = [index[key] for key in comparisons.select("DriverA", "Year").iter_rows()]
     b = [index[key] for key in comparisons.select("DriverB", "Year").iter_rows()]
-    table = comparisons.with_columns(pl.Series("a", a), pl.Series("b", b))
+    table = comparisons.with_columns(
+        pl.Series("a", a), pl.Series("b", b),
+        pl.col("DriverA").replace_strict(driver_position, return_dtype=pl.Int64).alias("driver_a"),
+        pl.col("DriverB").replace_strict(driver_position, return_dtype=pl.Int64).alias("driver_b"),
+    )
+
+    def as_tensor(rows, column, dtype):
+        return torch.tensor(rows[column].to_list(), device=DEVICE, dtype=dtype)
+
     tensors = {}
     for kind in KINDS:
         rows = table.filter(pl.col(kind).is_not_null())
         tensors[kind] = {
-            "a": torch.tensor(rows["a"].to_list(), device=DEVICE, dtype=torch.long),
-            "b": torch.tensor(rows["b"].to_list(), device=DEVICE, dtype=torch.long),
-            "value": torch.tensor(rows[kind].to_list(), device=DEVICE, dtype=DTYPE),
-            "weight": torch.tensor(rows["weight"].to_list(), device=DEVICE, dtype=DTYPE),
+            "a": as_tensor(rows, "a", torch.long), "b": as_tensor(rows, "b", torch.long),
+            "driver_a": as_tensor(rows, "driver_a", torch.long),
+            "driver_b": as_tensor(rows, "driver_b", torch.long),
+            "value": as_tensor(rows, kind, DTYPE), "weight": as_tensor(rows, "weight", DTYPE),
+            "wet": as_tensor(rows, "wet", DTYPE) if kind in WET_KINDS else None,
         }
     return tensors
 
@@ -156,28 +245,34 @@ def career_links(index: dict) -> dict:
     Returns positions in the skill list: `first` (each driver's first season)
     with `first_era` (which decade that was, counted from the earliest), and
     `earlier` / `later` (consecutive seasons of the same driver) with `years`
-    between them (2 if the driver sat out a season).
+    between them (2 if the driver sat out a season). Also `career_length`:
+    for each driver, how many seasons they have in the data, as a centred
+    logarithm (used by the weak-teammate correction).
     """
     decades = sorted({decade_of(year) for _, year in index})
-    first, first_era, earlier, later, years = [], [], [], [], []
+    first, first_era, earlier, later, years, seasons = [], [], [], [], [], []
     previous = None
     for (driver, year), position in index.items():  # sorted by driver, then year
         if previous is None or previous[0] != driver:
             first.append(position)
             first_era.append(decades.index(decade_of(year)))
+            seasons.append(1)
         else:
             earlier.append(position - 1)
             later.append(position)
             years.append(year - previous[1])
+            seasons[-1] += 1
         previous = (driver, year)
 
     def positions(values):
         return torch.tensor(values, device=DEVICE, dtype=torch.long)
 
+    length = torch.tensor(seasons, device=DEVICE, dtype=DTYPE).log()
     return {
         "decades": decades, "first": positions(first), "first_era": positions(first_era),
         "earlier": positions(earlier), "later": positions(later),
         "years": torch.tensor(years, device=DEVICE, dtype=DTYPE),
+        "career_length": length - length.mean(),
     }
 
 
@@ -198,14 +293,19 @@ def quali_slope(scales: dict):
     return AHEAD_SLOPE_PER_NOISE / scales["quali_noise"]
 
 
-def log_likelihood(skill, scales, results) -> torch.Tensor:
+def log_likelihood(skill, scales, results, wet=None) -> torch.Tensor:
     """How well these skills explain every teammate comparison (higher is better).
 
     For each comparison the only thing that matters is the skill GAP between
-    the two teammates, because they share a car.
+    the two teammates, because they share a car. In a wet race each driver's
+    wet adjustment is added to their skill (if the model has one).
     """
     def gap(kind):  # skill of A minus skill of B, for each comparison of this kind
-        return skill[results[kind]["a"]] - skill[results[kind]["b"]]
+        rows = results[kind]
+        difference = skill[rows["a"]] - skill[rows["b"]]
+        if wet is not None and rows["wet"] is not None:
+            difference = difference + rows["wet"] * (wet[rows["driver_a"]] - wet[rows["driver_b"]])
+        return difference
 
     def total(kind, log_chance):
         return (results[kind]["weight"] * log_chance).sum()
@@ -235,36 +335,70 @@ def log_likelihood(skill, scales, results) -> torch.Tensor:
     )
 
 
-def log_prior(skill, era_level, links, skill_spread, season_drift) -> torch.Tensor:
+def log_prior(parts, links, skill_spread, season_drift) -> torch.Tensor:
     """What is believed about skills before seeing any result (higher is more believable).
 
     1. A driver's first season is probably near the level of newcomers in
        their era, give or take `skill_spread`. This keeps a driver with three
        races from being rated a genius or a disaster on thin evidence.
+       With the weak-teammate correction, drivers with longer careers start
+       from a higher expected level and short careers from a lower one (by a
+       learned amount), because teams keep good drivers and drop weak ones.
     2. Each season a driver's skill is probably near last season's, give or
        take `season_drift`. This lets careers rise and fall, but smoothly.
     3. The level of newcomers may differ between decades, but probably not by
        much from one decade to the next (`ERA_DRIFT`).
+    4. A driver's wet adjustment is probably small (`WET_SPREAD`).
     """
     normal = torch.distributions.Normal
+    skill, era_level = parts["skill"], parts["era_level"]
     expected_first = era_level[links["first_era"]]
+    if parts["career_weight"] is not None:
+        expected_first = expected_first + parts["career_weight"] * links["career_length"]
     first_season = normal(expected_first, skill_spread).log_prob(skill[links["first"]]).sum()
     change = skill[links["later"]] - skill[links["earlier"]]
     # A two year gap allows more change than one: uncertainty adds up over time.
     drift = normal(0.0, season_drift * links["years"].sqrt()).log_prob(change).sum()
     era_steps = normal(0.0, ERA_DRIFT).log_prob(era_level[1:] - era_level[:-1]).sum()
-    return first_season + drift + era_steps
+    total = first_season + drift + era_steps
+    if parts["wet"] is not None:
+        total = total + normal(0.0, WET_SPREAD).log_prob(parts["wet"]).sum()
+    if parts["career_weight"] is not None:
+        total = total + normal(0.0, 1.0).log_prob(parts["career_weight"]).sum()  # a weak, wide belief
+    return total
 
 
-def split(unknowns: torch.Tensor, skill_count: int) -> tuple[torch.Tensor, torch.Tensor]:
-    """Split the list of unknowns into skills and era levels.
+def unknown_layout(skill_count: int, decade_count: int, driver_count: int, options: Options) -> dict:
+    """Where each part sits in the one long list of unknowns the optimiser works on."""
+    layout, start = {}, 0
+    for name, size in [("skill", skill_count), ("era_level", decade_count - 1),
+                       ("wet", driver_count if options.wet else 0),
+                       ("career_weight", 1 if options.career_prior else 0)]:
+        layout[name] = (start, start + size)
+        start += size
+    layout["total"] = start
+    return layout
+
+
+def split(unknowns: torch.Tensor, layout: dict) -> dict:
+    """Split the list of unknowns into its named parts.
 
     The latest decade's level is not an unknown: it is fixed at 0, because
     only differences can be measured and something has to be the reference.
     So every rating reads as "compared with a newcomer of today".
     """
-    skill, earlier_levels = unknowns[:skill_count], unknowns[skill_count:]
-    return skill, torch.cat([earlier_levels, earlier_levels.new_zeros(1)])
+    def part(name):
+        start, end = layout[name]
+        return unknowns[start:end] if end > start else None
+
+    earlier_levels = part("era_level")
+    zero = unknowns.new_zeros(1)
+    return {
+        "skill": part("skill"),
+        "era_level": zero if earlier_levels is None else torch.cat([earlier_levels, zero]),
+        "wet": part("wet"),
+        "career_weight": part("career_weight"),
+    }
 
 
 def positive_scales(raw: torch.Tensor) -> dict:
@@ -272,19 +406,18 @@ def positive_scales(raw: torch.Tensor) -> dict:
     return dict(zip(SCALE_NAMES, raw.exp()))  # exp() of any number is positive
 
 
-def badness(unknowns, raw_scales, results, links, skill_count, skill_spread, season_drift):
+def badness(unknowns, raw_scales, data, skill_spread, season_drift):
     """One number to make as small as possible: minus (fit to results + prior belief)."""
-    skill, era_level = split(unknowns, skill_count)
-    return -(log_likelihood(skill, positive_scales(raw_scales), results)
-             + log_prior(skill, era_level, links, skill_spread, season_drift))
+    parts = split(unknowns, data["layout"])
+    return -(log_likelihood(parts["skill"], positive_scales(raw_scales), data["results"], parts["wet"])
+             + log_prior(parts, data["links"], skill_spread, season_drift))
 
 
 # --- Step 3: find the best skills, then how uncertain they are -------------
 
-def find_best_skills(results, links, skill_count, skill_spread, season_drift):
-    """Find the skills, era levels and scales that make the badness smallest."""
-    unknown_count = skill_count + len(links["decades"]) - 1
-    unknowns = torch.zeros(unknown_count, device=DEVICE, dtype=DTYPE, requires_grad=True)
+def find_best_skills(data, skill_spread, season_drift):
+    """Find the skills, era levels, scales and optional parts that make the badness smallest."""
+    unknowns = torch.zeros(data["layout"]["total"], device=DEVICE, dtype=DTYPE, requires_grad=True)
     raw_scales = torch.zeros(len(SCALE_NAMES), device=DEVICE, dtype=DTYPE, requires_grad=True)
     # L-BFGS is an optimiser for smooth problems where all the data fits in
     # memory at once. It needs far fewer steps here than Adam would.
@@ -294,7 +427,7 @@ def find_best_skills(results, links, skill_count, skill_spread, season_drift):
 
     def step():
         optimiser.zero_grad()
-        loss = badness(unknowns, raw_scales, results, links, skill_count, skill_spread, season_drift)
+        loss = badness(unknowns, raw_scales, data, skill_spread, season_drift)
         loss.backward()
         return loss
 
@@ -302,8 +435,8 @@ def find_best_skills(results, links, skill_count, skill_spread, season_drift):
     return unknowns.detach(), raw_scales.detach()
 
 
-def uncertainty(unknowns, raw_scales, results, links, skill_count, skill_spread, season_drift):
-    """How uncertain each skill is (the "Laplace approximation").
+def uncertainty(unknowns, raw_scales, data, skill_spread, season_drift):
+    """How uncertain each unknown is (the "Laplace approximation").
 
     Picture the badness as a valley with the best skills at the bottom. If
     the valley is steep around a driver's skill, moving it even slightly
@@ -317,29 +450,62 @@ def uncertainty(unknowns, raw_scales, results, links, skill_count, skill_spread,
     together; drivers from distant eras are only loosely linked).
     """
     def badness_of(values):
-        return badness(values, raw_scales, results, links, skill_count, skill_spread, season_drift)
+        return badness(values, raw_scales, data, skill_spread, season_drift)
 
     hessian = torch.autograd.functional.hessian(badness_of, unknowns, vectorize=True)
     return torch.linalg.inv(hessian)
 
 
-def fit_model(pairs, pace, last_year, skill_spread=DEFAULT_SKILL_SPREAD,
-              season_drift=DEFAULT_SEASON_DRIFT) -> Fit:
-    """Fit the model on every teammate comparison up to and including `last_year`."""
-    comparisons = build_comparisons(pairs, pace, last_year)
+def prepare(pairs, pace, last_year, wet_races=None, options: Options | None = None) -> tuple[dict, dict]:
+    """Build everything the fit needs: the comparisons as tensors, careers, layout."""
+    options = options or Options()
+    if not options.wet:
+        wet_races = None
+    comparisons = build_comparisons(pairs, pace, last_year, wet_races, options)
     index = driver_season_index(comparisons)
-    results, links = to_tensors(comparisons, index), career_links(index)
-    settings = (results, links, len(index), skill_spread, season_drift)
-    unknowns, raw_scales = find_best_skills(*settings)
-    covariance = uncertainty(unknowns, raw_scales, *settings)
-    skill, era_level = split(unknowns, len(index))
+    drivers = sorted({driver for driver, _ in index})
+    links = career_links(index)
+    layout = unknown_layout(len(index), len(links["decades"]), len(drivers), options)
+    data = {"results": to_tensors(comparisons, index, drivers), "links": links,
+            "layout": layout, "drivers": drivers, "comparisons": comparisons}
+    return index, data
+
+
+def fit_model(pairs, pace, last_year, skill_spread=DEFAULT_SKILL_SPREAD,
+              season_drift=DEFAULT_SEASON_DRIFT, wet_races=None, options: Options | None = None,
+              with_uncertainty: bool = True) -> Fit:
+    """Fit the model on every teammate comparison up to and including `last_year`."""
+    options = options or Options()
+    index, data = prepare(pairs, pace, last_year, wet_races, options)
+    unknowns, raw_scales = find_best_skills(data, skill_spread, season_drift)
+    covariance = (uncertainty(unknowns, raw_scales, data, skill_spread, season_drift)
+                  if with_uncertainty else None)
+    parts = split(unknowns, data["layout"])
+    data["unknowns"], data["raw_scales"] = unknowns, raw_scales
     return Fit(
-        index=index, skill=skill,
-        era_level=dict(zip(links["decades"], era_level.tolist())),
+        index=index, skill=parts["skill"],
+        era_level=dict(zip(data["links"]["decades"], parts["era_level"].tolist())),
         covariance=covariance,
         scales={name: value.item() for name, value in positive_scales(raw_scales).items()},
-        skill_spread=skill_spread, season_drift=season_drift,
+        skill_spread=skill_spread, season_drift=season_drift, options=options,
+        wet=wet_table(parts["wet"], covariance, data) if parts["wet"] is not None else {},
+        career_weight=parts["career_weight"].item() if parts["career_weight"] is not None else 0.0,
+        layout=data["layout"], data=data,
     )
+
+
+def wet_table(wet, covariance, data) -> dict:
+    """Each driver's wet adjustment, its uncertainty, and how many wet races it rests on."""
+    start, _ = data["layout"]["wet"]
+    rows = data["comparisons"].filter((pl.col("wet") > 0) & pl.col("race_ahead").is_not_null())
+    races = pl.concat([rows.select(pl.col("DriverA").alias("d"), "Year", "Round"),
+                       rows.select(pl.col("DriverB").alias("d"), "Year", "Round")]).unique()
+    counts = dict(races.group_by("d").agg(pl.len()).iter_rows())
+    table = {}
+    for position, driver in enumerate(data["drivers"]):
+        sd = covariance[start + position, start + position].sqrt().item() if covariance is not None else None
+        table[driver] = (wet[position].item(), sd, counts.get(driver, 0))
+    return table
 
 
 # --- Step 4: use a fitted model ---------------------------------------------
@@ -387,6 +553,12 @@ def chance_ahead(gap: float, variance: float, slope: float) -> float:
     """
     softened = slope * gap / (1 + torch.pi * slope ** 2 * variance / 8) ** 0.5
     return torch.sigmoid(torch.tensor(softened)).item()
+
+
+def race_chance(fit: Fit, gap: float, variance: float, temperature: float | None = None) -> float:
+    """The chance A finishes ahead of B in a race, with the calibration temperature applied."""
+    temperature = RACE_TEMPERATURE if temperature is None else temperature
+    return chance_ahead(gap, variance, fit.scales["race_slope"] * temperature)
 
 
 def skill_table(fit: Fit) -> pl.DataFrame:
@@ -438,9 +610,14 @@ def load_tables() -> tuple[pl.DataFrame, pl.DataFrame]:
     return pl.read_parquet(PAIRS_FILE), pl.read_parquet(PACE_FILE)
 
 
+def load_wet_races() -> pl.DataFrame:
+    return pl.read_parquet(WET_FILE)
+
+
 if __name__ == "__main__":
     # A quick look: fit up to 2023 and print what was learned.
-    fit = fit_model(*load_tables(), last_year=2023)
-    print(f"{len(fit.index):,} driver-seasons fitted on {DEVICE}")
+    fit = fit_model(*load_tables(), last_year=2023, wet_races=load_wet_races())
+    print(f"{len(fit.index):,} driver-seasons fitted on {DEVICE}, options {fit.options}")
     print("scales:", {name: round(value, 3) for name, value in fit.scales.items()})
     print("era levels:", {decade: round(level, 3) for decade, level in fit.era_level.items()})
+    print("career weight:", round(fit.career_weight, 3))
