@@ -873,3 +873,116 @@ updating six times a second; a row that changes place slides from its old
 position with a short animation. `web/tests/tower.test.ts` checks the order
 before the start, during the race, after an overtake, with a crashed car, and
 at the flag, and a browser check confirmed the order during a live race.
+
+## 38. How far can teammate prediction go? A ceiling and two references
+
+`backtest_improvements.py` adds reference rows that are allowed to see the
+answers, so the room for improvement can be judged:
+
+- **Ceiling (hindsight)**: for each season, fit the model WITH that season's
+  results and predict the same season. Race 65.9%, qualifying 69.8%
+  (2010 to 2025 pooled).
+- **Ceiling + qualifying (hindsight)**: the same, plus the same weekend's
+  qualifying (number 40). Race 68.8%.
+- **Hindsight pair-season share**: for each pair of teammates in each season,
+  use the share of that season's results driver A really won as A's chance in
+  every race. Race 68.3%, qualifying 71.4%. This is the best any model can do
+  if it gives a pair one fixed chance per season.
+
+The main lesson: single races are mostly luck. Even knowing every result of
+the season, a season-level skill model calls only about two thirds of
+teammate race battles. The "ceiling" is not a true ceiling for a model that
+uses race-by-race information: the fair combined model (68.6%) beats the
+hindsight model without qualifying (65.9%), because qualifying tells it who
+was quicker that particular weekend. Against the matching hindsight
+reference (68.8%), the fair model is 0.2 points behind in accuracy and
+0.013 behind in log loss: close to what is possible with this information.
+For qualifying predictions there is more room: 66.3% fair against 69.8%.
+
+## 39. In-season updating, and the rule that no prediction sees the future
+
+The rolling backtest used to fit once before each season. Now each race is
+predicted from all earlier seasons plus the earlier races of the same
+season, refitting before every race (`model.data_window`, `before_race`).
+
+- **The no-future rule is checked, not assumed.** Every prediction records
+  the last race in the data its fit was made from, read from the fitted data
+  itself, and `check_no_future` stops the script if any fair prediction's fit
+  saw its own race or a later one. All 15,788 fair predictions passed.
+  `test_improvements.py` checks the data window, checks that round 3 is
+  predicted from rounds 1 and 2 only, and checks that the check itself stops a
+  leaked prediction.
+- **Speed**: about 400 refits per version. Each refit starts from the
+  previous race's fit (a "warm start"), which gives the same answer
+  (largest difference 0.000002; tested) a little faster. The uncertainty of
+  the gap is computed once at the start of each season and reused within it,
+  because recomputing it before every race would add several seconds each
+  time; only the best estimates are refitted race by race.
+- **Result**: race 59.6% to 62.9% (log loss 0.6715 to 0.6444), qualifying
+  61.3% to 64.9%. Kept.
+
+## 40. The qualifying signal and the experience curve: both kept, with a caution
+
+**Qualifying signal.** Qualifying happens before the race, so a race
+prediction may use it. It is added by a small second step on top of the
+model: a logistic regression with three inputs (the model's own prediction,
+how much better or worse than expected driver A qualified relative to B,
+and who qualified ahead when no lap time exists). Each season's weights are
+learned only from earlier seasons' predictions (2007 to 2009 are predicted
+only to give 2010 something to learn from). So that versions are compared
+fairly, every version gets the same second step; without the qualifying
+inputs it simply recalibrates the model's probabilities.
+
+- Race: 59.6% to 68.8% on its own; 68.6% with in-season updating and the
+  experience curve. Kept.
+- **The honest comparison**: the simple rule "whoever qualified ahead
+  finishes ahead", with a confidence learned from earlier seasons, scores
+  68.3% (Brier 0.2172, log loss 0.6261). So almost all of the accuracy gain
+  is qualifying itself; the combined model adds 0.3 points of accuracy and
+  better probabilities (Brier 0.2073, log loss 0.6035).
+- **Leakage checks**, because three seasons of the combined model went above
+  75% (2013: 75.7%, 2021: 76.2%, 2024: 75.4%): the qualifying data in those
+  seasons comes from qualifying sessions (one grid fallback in 2021); the
+  simple qualifying rule scored similarly high in the same seasons (71.1%,
+  75.1%, 76.4%), so qualifying was simply very predictive then; and when each
+  comparison is given the same pair's previous race qualifying instead of its
+  own, the combined model falls to 63.2%, the level without qualifying. The
+  gain comes from same-weekend qualifying, not a leak elsewhere.
+- This improves forecasts of real teammate battles. It does not change the
+  site's ratings, which describe drivers' skill, not one weekend.
+
+**Experience curve** (`model.Options.experience`, now on). A shared curve of
+how a typical driver's skill changes with years in F1, one value per year up
+to 10, kept smooth (neighbouring years probably within 0.1%). Year 0 is the
+reference. Learned from all data: +0.13% after one year, +0.26% at year 3,
+then a slow decline to about -0.05% by year 10. When predicting a new season,
+each driver's skill moves along the curve, so rookies are expected to improve
+and veterans to decline.
+
+- Backtest: race 59.6% to 60.1% (log loss 0.6715 to 0.6695), qualifying
+  61.3% to 62.1% (0.6609 to 0.6591). Better on every measure, so kept. In the
+  full combination it is neutral for races (log loss 0.6035 against 0.6030
+  without it) and clearly better for qualifying (0.6119 against 0.6270).
+- **It changes the ratings more than the backtest gain suggests.** A
+  driver's skill each season is now their own skill plus the curve, so the
+  peak (best three seasons) moves for drivers whose best seasons came early
+  or late in their careers, and the changes travel along the teammate chains.
+  68 ranked drivers moved more than 10 places. Examples: Nico Rosberg 28th
+  to 13th (his peak, 2009 to 2011, includes two seasons against Michael
+  Schumacher, who rose too),
+  Jacques Villeneuve 21st to 11th, Max Verstappen 7th to 3rd, Stirling Moss
+  10th to 20th (his best seasons were late in his career, where the curve
+  expects decline). The equal car champion changed in 10 of 77 seasons.
+- **It makes the ranking more dependent on the era assumption**
+  (number 31): only 4 of the top 20 (Schumacher, Senna, Frentzen, Häkkinen)
+  now keep their rank within 3 places across the three assumptions, down
+  from 10. The backtest checks predictions within the modern era, not
+  comparisons across eras, so this is a real cost that the backtest cannot
+  see. It is shown on the About page.
+- Knock-on numbers: on the all-time grid Schumacher now takes pole in 46.0% of
+  simulated qualifying sessions (37.2% before), and on today's grid at
+  Interlagos the fastest lap goes to a top 3 driver 49.1% of the time (51.7%
+  before). The test bound for the fastest lap was set at 50%, right at the old
+  measurement; it now guards "far above the 15% chance level" at 40%.
+- The 2024 and 2025 single test (number 21) and the first rolling backtest
+  (number 29) are kept as they were run, without the curve.

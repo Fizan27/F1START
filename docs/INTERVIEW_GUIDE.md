@@ -89,6 +89,13 @@ seasons, tied 1, lost 7. Three additions (team orders, a weak-teammate
 correction, a wet adjustment) were tested this way; none improved log loss,
 so none is used.
 
+**How far it can go (race by race).** Predicting every race 2010 to 2025
+from earlier races only: current model 59.6%, refitting before every race
+62.9%, adding the same weekend's qualifying 68.8%, all combined 68.6% (log
+loss 0.6035). A model fitted with the season's own results (hindsight) gets
+65.9%, or 68.8% with qualifying. The simple rule "whoever qualified ahead
+finishes ahead" gets 68.3%.
+
 **The single 2024 and 2025 test.**
 
 - Fitted on results up to the end of 2023. Predicted 2024 and 2025 without
@@ -238,6 +245,8 @@ lap goes to a top 3 driver only half the time, and I report that.
 | Drivers linked through teammates | 643 of 655 |
 | Driver-seasons estimated | 2,515 |
 | Rolling backtest, 2010 to 2025 | 59.6% (best baseline 59.3%), 2,728 comparisons |
+| Race by race, all improvements | 68.6% (qualifying rule 68.3%, hindsight 68.8%) |
+| Hindsight ceiling without qualifying | 65.9% race, 69.8% qualifying |
 | Teammate race prediction, 2024 and 2025 | 67.0% (baseline 62.0%), 376 comparisons |
 | Teammate qualifying prediction | 70.1% (baseline 65.0%), 472 comparisons |
 | Typical uncertainty of a peak rating | 0.30% in the 1950s, 0.16% in the 2020s |
@@ -310,3 +319,66 @@ correctly: the model could quote Senna's rating as Prost's. It cannot catch
 wrong words around right numbers. It only knows what the tools expose. And
 the live evaluation score has not been measured yet, because that needs a
 paid API key; until it is, I would not claim an accuracy figure for it.
+
+## How far can prediction go? (the third round of work)
+
+**What was done.** Three improvements were tested race by race over 2010 to
+2025, each race predicted only from earlier races, and compared with a
+"ceiling": the model fitted with the season's own results.
+
+| | Race | Log loss | Qualifying |
+|---|---|---|---|
+| Current model | 59.6% | 0.6715 | 61.3% |
+| Refit before every race | 62.9% | 0.6444 | 64.9% |
+| + same weekend's qualifying | 68.8% | 0.6137 | |
+| + experience curve | 60.1% | 0.6695 | 62.1% |
+| All combined | 68.6% | 0.6035 | 66.3% |
+| Whoever qualified ahead (simple rule) | 68.3% | 0.6261 | |
+| Hindsight ceiling / ceiling + qualifying | 65.9% / 68.8% | 0.6120 / 0.5903 | 69.8% |
+
+### Five questions you are likely to be asked about it
+
+**1. How do you know no prediction saw the future?**
+Every prediction records the last race in the data its fit was made from,
+read from the fitted data itself rather than from what I intended, and the
+script stops if any of the 15,788 fair predictions saw its own race or a
+later one. There are tests for the data window, for "round 3 is predicted
+from rounds 1 and 2 only", and that the check really stops a leaked
+prediction. The second step that adds qualifying learns each season's
+weights only from earlier seasons, and a test checks that too.
+
+**2. Some seasons went above 75%. Is that leakage?**
+I checked, because a jump like that is the classic sign of a leak. Three
+things. The qualifying data really comes from qualifying sessions. The
+simple rule "whoever qualified ahead finishes ahead" was just as high in
+those seasons (75.1% and 76.4% in 2021 and 2024), so qualifying was simply
+very predictive then. And a shuffle test: give every race the previous
+race's qualifying instead of its own, and the combined model falls from
+68.6% to 63.2%, the level without qualifying. So the gain comes from
+same-weekend qualifying and nothing else.
+
+**3. So is the model even useful, if qualifying alone gets 68.3%?**
+For calling who finishes ahead, the model adds only 0.3 points on top of
+qualifying, and I say so. It adds more in two places: its probabilities are
+better (log loss 0.6035 against 0.6261), and before qualifying, or for
+drivers who never shared a car, there is no qualifying result to use. The
+in-season refit is the biggest gain that comes from the model itself: +3.3
+points for races and +3.6 for qualifying.
+
+**4. Why is the "ceiling" below your best fair model?**
+Because the ceiling, as defined, is a season-level model: it knows every
+result of the season but gives each pair one skill gap for the whole year.
+The fair model also knows who was quicker in that weekend's qualifying, which
+is race-specific information. Compared with the matching reference (hindsight
+plus qualifying, 68.8%), the fair model is 0.2 points behind. The bigger
+lesson is that single races are mostly luck: even knowing the whole season,
+about a third of teammate battles cannot be called.
+
+**5. The experience curve improved predictions. Why are you cautious about it?**
+It improved every backtest measure, so by my rule it stays. But it changed
+the ratings more than that small gain suggests: 68 drivers moved more than
+10 places, and only 4 of the top 20 now keep their rank under all three
+assumptions about how the level of drivers changed between decades, down
+from 10. The backtest only tests predictions within the modern era; it
+cannot test comparisons across eras, so it cannot see that cost. I report
+both.

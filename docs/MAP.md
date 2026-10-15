@@ -68,6 +68,12 @@ How the files connect, and the order things run in. Updated after every step.
         |          v
         |    docs/backtest.png, web/public/data/backtest.json
         |
+        +--> 7b. backtest_improvements.py  every race 2010 to 2025 from earlier
+        |          |               races only: hindsight ceiling, in-season
+        |          |               updating, qualifying signal, experience curve
+        |          v
+        |    docs/improvements.png, web/public/data/improvements.json
+        |
         +--> 8. validate_model.py  fit up to 2023, predict 2024 and 2025,
         |          |               compare with baselines, calibration before/after
         |          v
@@ -208,6 +214,7 @@ Drivers are named by `DriverId` (for example `hamilton`) and teams by `TeamId`
 | `export_web.py` | Simulates and writes the website's data | rating files, results, laps | six JSON files in `web/public/data/` |
 | `wet_races.py` | Tags wet races | `data/raw/`, `data/results.parquet` | `data/wet_races.parquet` |
 | `backtest.py` | Rolling backtest 2010 to 2025, model options, temperature | via `model.py` | `docs/backtest.png`, `web/public/data/backtest.json` |
+| `backtest_improvements.py` | Hindsight ceiling and three improvements, race by race, no future data | via `model.py` | `docs/improvements.png`, `web/public/data/improvements.json` |
 | `sample_posterior.py` | NUTS posterior samples (checks Laplace) | via `model.py` | `data/posterior_samples.pt` |
 | `explain_ratings.py` | Why each driver has their rating | via `model.py`, `fit_ratings.py` | `web/public/data/explain.json` |
 | `sensitivity.py` | Top 20 under three era assumptions | via `model.py` | `web/public/data/sensitivity.json` |

@@ -20,17 +20,18 @@ connected to Vercel; steps in [Deploying](#deploying)).
 
 **In one paragraph:** a Bayesian hierarchical model, written in PyTorch and
 fitted on the GPU, estimates a skill for every driver in every season since
-1950, with uncertainty checked by posterior sampling. In a rolling backtest
-(each season 2010 to 2025 predicted from earlier seasons only) it calls the
-right teammate in 59.6% of 2,728 race comparisons, only slightly better than
-the best simple rule (59.3%); its real advantage is comparing drivers who were
-never teammates (2025: 65.9% against 57.8%). Everything below, including where
-the model falls short, is printed by a script in this repository.
+1950, with uncertainty checked by posterior sampling. Predicting every race
+from 2010 to 2025 using only earlier races, refitted before each race and
+using that weekend's qualifying, it calls the right teammate in 68.6% of
+2,728 race battles, close to a hindsight model that knows the season's
+results (68.8%). Most of that gain is qualifying itself: "whoever qualified
+ahead" alone scores 68.3%. Everything below, including where the model falls
+short, is printed by a script in this repository.
 
 ## Contents
 
 - [How the model works](#how-the-model-works)
-- [Results](#results): backtest, 2024 and 2025 test, calibration, top 20, sensitivity
+- [Results](#results): backtest, how far prediction can go, 2024 and 2025 test, calibration, top 20, sensitivity
 - [The simulation](#the-simulation)
 - [The Pit Wall assistant](#the-pit-wall-assistant)
 - [Weaknesses](#weaknesses)
@@ -52,7 +53,7 @@ the model falls short, is printed by a script in this repository.
   each season's skill is tied to the season before.
 - It is fitted on the GPU in about 15 seconds. Its uncertainty was first
   worked out with a Laplace approximation and then checked with posterior
-  sampling (NUTS): the sampled uncertainty is 1.04 times as wide, and the
+  sampling (NUTS): the sampled uncertainty is 1.03 times as wide, and the
   site uses the sampled version. Drivers with few races, few teammates or
   from older eras get wider ranges.
 
@@ -91,6 +92,43 @@ probabilities, not just the pick). None passed:
 | Leave out race results arranged by documented team orders | 59.6% | 0.6777 |
 | Assume drivers with short careers were weaker (weak-teammate correction) | 60.5% | 0.6812 |
 | Separate wet weather skill in the main model | 59.2% | 0.6788 |
+
+### How far can prediction go?
+
+`backtest_improvements.py` predicts every race from 2010 to 2025 from earlier
+races only (a check stops the script if any of the 15,788 predictions could
+see its own race or a later one), tests three improvements, and compares
+them with references that are allowed to see the answers.
+
+![How much room there is](docs/improvements.png)
+
+| Pooled 2010 to 2025 | Race | Brier | Log loss | Qualifying | Brier | Log loss |
+|---|---|---|---|---|---|---|
+| Current model (refitted once a season) | 59.6% | 0.2394 | 0.6715 | 61.3% | 0.2342 | 0.6609 |
+| + in-season updating (refit before every race) | 62.9% | 0.2267 | 0.6444 | 64.9% | 0.2181 | 0.6270 |
+| + qualifying signal (same weekend, before the race) | 68.8% | 0.2116 | 0.6137 | | | |
+| + experience curve (rookies improve, veterans decline) | 60.1% | 0.2383 | 0.6695 | 62.1% | 0.2333 | 0.6591 |
+| **All combined** | **68.6%** | **0.2073** | **0.6035** | **66.3%** | **0.2118** | **0.6119** |
+| Baseline: whoever qualified ahead finishes ahead | 68.3% | 0.2172 | 0.6261 | | | |
+| Ceiling: model fitted with the season's own results | 65.9% | 0.2121 | 0.6120 | 69.8% | 0.1923 | 0.5653 |
+| Ceiling + qualifying (hindsight) | 68.8% | 0.2021 | 0.5903 | 69.8% | 0.1923 | 0.5653 |
+
+Lower Brier and log loss are better (a coin flip scores 0.25 and 0.693). Each
+improvement helped on its own and all three are kept. What it shows:
+
+- **Single races are mostly luck.** Even fitted on the season's own results,
+  the model calls only 65.9% of race battles. The fair combined model gets
+  within 0.2 points of the matching hindsight reference.
+- **Qualifying does most of the work.** The simple rule "whoever qualified
+  ahead finishes ahead" already scores 68.3%; the model adds 0.3 points of
+  accuracy and better probabilities on top.
+- **In-season updating** is the biggest gain that comes from the model itself:
+  +3.3 points for races and +3.6 for qualifying.
+- **Leakage was checked** because three seasons went above 75% (2013, 2021,
+  2024): the simple qualifying rule was just as high in those seasons, and
+  giving each race the previous race's qualifying instead drops the combined
+  model back to 63.2%. Details: [docs/DECISIONS.md](docs/DECISIONS.md),
+  numbers 38 to 40.
 
 ### The 2024 and 2025 test
 
@@ -138,50 +176,52 @@ Peak skill among drivers with at least 30 starts (`fit_ratings.py`,
 `compare_ratings.py`). "Could rank" is the middle 90% of plausible ranks from
 1,000 posterior samples.
 
-| # | Driver | Peak | Skill (90% range) | Could rank | Before this round |
+| # | Driver | Peak | Skill (90% range) | Could rank | Rank before the experience curve |
 |---|---|---|---|---|---|
-| 1 | Michael Schumacher | 1994 to 1996 | +1.41 (+1.08 to +1.75) | 1 to 2 | 1 to 2 |
-| 2 | Juan Manuel Fangio | 1956 to 1958 | +0.94 (+0.48 to +1.40) | 1 to 21 | 2 to 37 |
-| 3 | Ayrton Senna | 1991 to 1993 | +0.92 (+0.58 to +1.26) | 2 to 17 | 2 to 27 |
-| 4 | Jackie Stewart | 1970 to 1972 | +0.92 (+0.50 to +1.34) | 2 to 21 | 2 to 32 |
-| 5 | Jim Clark | 1966 to 1968 | +0.91 (+0.44 to +1.39) | 2 to 31 | 2 to 40 |
-| 6 | Jochen Rindt | 1968 to 1970 | +0.90 (+0.47 to +1.32) | 2 to 25 | 2 to 35 |
-| 7 | Max Verstappen | 2023 to 2025 | +0.88 (+0.63 to +1.14) | 2 to 41 | 2 to 44 |
-| 8 | Fernando Alonso | 2010 to 2012 | +0.82 (+0.55 to +1.08) | 4 to 50 | 2 to 54 |
-| 9 | Heinz-Harald Frentzen | 1994 to 1996 | +0.82 (+0.51 to +1.12) | 4 to 36 | 3 to 42 |
-| 10 | Stirling Moss | 1959 to 1961 | +0.78 (+0.36 to +1.20) | 3 to 39 | 3 to 61 |
-| 11 | Mika Häkkinen | 1994 to 1996 | +0.72 (+0.41 to +1.04) | 7 to 57 | 5 to 66 |
-| 12 | Alberto Ascari | 1952 to 1954 | +0.72 (+0.29 to +1.15) | 4 to 54 | 4 to 74 |
-| 13 | Graham Hill | 1963 to 1965 | +0.71 (+0.33 to +1.09) | 5 to 49 | 5 to 70 |
-| 14 | John Surtees | 1964 to 1966 | +0.69 (+0.30 to +1.09) | 5 to 58 | 5 to 81 |
-| 15 | Alain Prost | 1984 to 1986 | +0.69 (+0.33 to +1.05) | 6 to 49 | 5 to 79 |
-| 16 | Jenson Button | 2004 to 2006 | +0.67 (+0.38 to +0.95) | 8 to 72 | 6 to 95 |
-| 17 | Nigel Mansell | 1987 to 1989 | +0.66 (+0.37 to +0.96) | 8 to 52 | 8 to 74 |
-| 18 | Felipe Massa | 2007 to 2009 | +0.65 (+0.38 to +0.92) | 11 to 79 | 7 to 97 |
-| 19 | Lewis Hamilton | 2015 to 2017 | +0.65 (+0.31 to +0.98) | 7 to 90 | 5 to 134 |
-| 20 | Dan Gurney | 1963 to 1965 | +0.64 (+0.23 to +1.04) | 7 to 68 | 7 to 97 |
+| 1 | Michael Schumacher | 1994 to 1996 | +1.57 (+1.26 to +1.88) | 1 to 1 | 1 |
+| 2 | Ayrton Senna | 1989 to 1991 | +1.00 (+0.64 to +1.36) | 2 to 16 | 3 |
+| 3 | Max Verstappen | 2023 to 2025 | +0.96 (+0.70 to +1.22) | 2 to 43 | 7 |
+| 4 | Jackie Stewart | 1970 to 1972 | +0.94 (+0.52 to +1.35) | 2 to 26 | 4 |
+| 5 | Juan Manuel Fangio | 1953 to 1955 | +0.94 (+0.47 to +1.40) | 2 to 29 | 2 |
+| 6 | Jim Clark | 1963 to 1965 | +0.92 (+0.49 to +1.35) | 2 to 32 | 5 |
+| 7 | Heinz-Harald Frentzen | 1994 to 1996 | +0.89 (+0.58 to +1.19) | 4 to 40 | 9 |
+| 8 | Jochen Rindt | 1968 to 1970 | +0.88 (+0.46 to +1.30) | 2 to 36 | 6 |
+| 9 | Mika Häkkinen | 1994 to 1996 | +0.86 (+0.54 to +1.17) | 4 to 44 | 11 |
+| 10 | Fernando Alonso | 2010 to 2012 | +0.81 (+0.52 to +1.11) | 5 to 71 | 8 |
+| 11 | Jacques Villeneuve | 1997 to 1999 | +0.80 (+0.50 to +1.10) | 5 to 49 | 21 |
+| 12 | Jenson Button | 2004 to 2006 | +0.80 (+0.50 to +1.09) | 6 to 60 | 16 |
+| 13 | Nico Rosberg | 2009 to 2011 | +0.79 (+0.41 to +1.17) | 3 to 76 | 28 |
+| 14 | John Surtees | 1963 to 1965 | +0.78 (+0.32 to +1.23) | 4 to 62 | 14 |
+| 15 | Alain Prost | 1984 to 1986 | +0.77 (+0.42 to +1.12) | 4 to 48 | 15 |
+| 16 | Jarno Trulli | 2000 to 2002 | +0.77 (+0.50 to +1.04) | 6 to 51 | 24 |
+| 17 | Gilles Villeneuve | 1980 to 1982 | +0.74 (+0.30 to +1.17) | 4 to 73 | 26 |
+| 18 | Graham Hill | 1962 to 1964 | +0.73 (+0.33 to +1.14) | 5 to 63 | 13 |
+| 19 | Alberto Ascari | 1952 to 1954 | +0.73 (+0.27 to +1.20) | 4 to 67 | 12 |
+| 20 | Stirling Moss | 1959 to 1961 | +0.73 (+0.28 to +1.18) | 4 to 66 | 10 |
 
 Read the "could rank" column before the first. Apart from Schumacher, the
-model cannot honestly separate these drivers. The best estimates did not
-change in this round; the rank ranges narrowed because ranks are now counted
-among drivers with at least 30 starts. Before, drivers with a handful of
-races, whose ratings are mostly guesswork, landed above mid-table drivers by
-chance in many plausible versions, which is why Hamilton's range reached 134.
-99 drivers moved more than 10 places for that reason; none of them is ranked
-higher than 115th. Lewis Hamilton at 19th will surprise many people: his
-rating rests on close battles with strong teammates (Rosberg, Bottas,
-Russell), and the "Why this rating" panel on his driver page shows exactly
-which ones.
+model cannot honestly separate these drivers. Ranks are counted among drivers
+with at least 30 starts: drivers with a handful of races have ratings that are
+mostly guesswork, and including them had pushed Hamilton's range down to 134th.
+
+The experience curve (kept because it improved the backtest) reshuffled this
+list: each season's skill now includes the typical gain or loss for a
+driver's year in F1, so peaks move for drivers whose best seasons came early
+or late, and the changes travel along the teammate chains. 68 ranked drivers
+moved more than 10 places (for example Nico Rosberg 28th to 13th and Stirling
+Moss 10th to 20th). Lewis Hamilton is now 21st; his rating rests on close
+battles with strong teammates (Rosberg, Bottas, Russell), and the "Why this
+rating" panel on his driver page shows exactly which ones.
 
 ### Which rankings depend on an assumption?
 
 How much the general level of drivers changed between decades cannot be
 measured, so `sensitivity.py` refits the model under three assumptions (0.03%,
-0.10% and 0.25% per decade). Solid (rank moves 3 places or fewer): Schumacher,
-Fangio, Senna, Stewart, Alonso, Frentzen, Moss, Häkkinen, Prost, Mansell.
-Depends on the assumption: Clark (2nd to 6th), Rindt, Verstappen (3rd to
-7th), Ascari, Graham Hill, Surtees, Button, Massa, Hamilton (14th to 27th),
-Gurney. The full table is on the site's About page.
+0.10% and 0.25% per decade). Only four of the top 20 keep their rank within
+3 places under all three: Schumacher, Senna, Frentzen and Häkkinen (ten did
+before the experience curve). The rest depend on the assumption, often a lot:
+Fangio 5th to 14th, Clark 2nd to 16th, Moss 12th to 41st, Alonso 4th to 20th,
+Verstappen 2nd to 7th. The full table is on the site's About page.
 
 ## The simulation
 
@@ -200,15 +240,21 @@ today's grid at Interlagos (`check_simulator.py`):
 
 | | Old, 15 laps | Old, 71 laps | New, 71 laps |
 |---|---|---|---|
-| Grid vs finish rank correlation (real F1 2018 to 2025: 0.742) | 0.931 | 0.913 | 0.653 |
-| Average places moved | 1.90 | 2.17 | 3.87 |
-| Top rated driver wins from pole / 5th / 15th | 55% / 15% / 4% | 41% / 22% / 16% | 46% / 19% / 15% |
-| Fastest lap by a top 3 rated driver | 52.1% | 52.1% | 51.7% |
-| Median gap, winner to 2nd / to 10th | 2.6s / 14.4s | 9.4s / 46.6s | 6.4s / 37.1s |
+| Grid vs finish rank correlation (real F1 2018 to 2025: 0.742) | 0.931 | 0.913 | 0.657 |
+| Average places moved | 1.90 | 2.17 | 3.86 |
+| Top rated driver wins from pole / 5th / 15th | 55% / 15% / 4% | 41% / 22% / 16% | 48% / 19% / 15% |
+| Fastest lap by a top 3 rated driver | 52.1% | 52.1% | 49.1% |
+| Median gap, winner to 2nd / to 10th | 2.6s / 14.4s | 9.4s / 46.6s | 5.8s / 36.9s |
 
+(New column with the current ratings, which include the experience curve.)
 The fastest lap did not improve: on the day, the calibrated form (0.40% of a
-lap) outweighs the gaps between today's top drivers. With the reworked
-simulator, the equal car champion changed in only 2 of 77 seasons.
+lap) outweighs the gaps between today's top drivers.
+
+On the all-time top 20 grid (`check_simulator.py --race-page`), Schumacher
+takes pole in 46% of simulated qualifying sessions (each real season's best
+qualifier from 2014 to 2025 took 20% to 62.5%), and top 10 rated drivers who
+start 16th to 20th at Silverstone gain about 3 to 4 places, against 4.2 for
+all real drivers starting there from 2018 to 2025.
 
 ## The Pit Wall assistant
 
@@ -244,8 +290,13 @@ should be added here once measured.
 - **Cross-era comparisons cannot be validated.** There is no test for Senna
   against Verstappen; only the modern end is checked, and the sensitivity
   table shows which rankings rest on an assumption.
-- **Over many seasons the model is only slightly better than a simple rule**
-  (59.6% against 59.3%), and lost to it in 7 of 16 seasons.
+- **Race outcomes are mostly luck.** Even in hindsight, a season-level model
+  calls about two thirds of teammate race battles. With same-weekend
+  qualifying the model reaches 68.6%, but "whoever qualified ahead" alone
+  gets 68.3%.
+- **The experience curve improved predictions but made the cross-era ranking
+  more fragile**: only 4 of the top 20 are solid under all three era
+  assumptions, and 68 drivers moved more than 10 places when it was added.
 - **Calibration drifts over time**: probabilities for modern drivers are
   probably too cautious.
 - **Teammate strength and team orders**: a driver measured only against weak
@@ -254,8 +305,8 @@ should be added here once measured.
   example).
 - **The rating is a driver's best three seasons**, which flatters everyone a
   little and long careers most.
-- **The race slope used for predictions (2.91) is steeper than its posterior
-  (2.03 to 2.32)**: the single best fit is not typical of the plausible ones.
+- **The race slope used for predictions (2.80) is steeper than its posterior
+  (1.94 to 2.24)**: the single best fit is not typical of the plausible ones.
 - **Wet weather ratings rest on 54 tagged races** (37 from a hand-made list),
   so most drivers' wet adjustments barely move from zero.
 - **The simulator** leaves out tyres, pit stops and weather, and the fastest
@@ -310,6 +361,7 @@ What the cleaned data holds (downloaded 2026-10-09, printed by
 .venv\Scripts\python.exe wet_races.py           # 6. tag wet races
 
 .venv\Scripts\python.exe backtest.py            # 7. rolling backtest 2010 to 2025 (about 40 minutes)
+.venv\Scripts\python.exe backtest_improvements.py  # 7b. ceiling, in-season updating, qualifying, experience (about 90 minutes)
 .venv\Scripts\python.exe validate_model.py      # 8. fit to 2023, test on 2024 and 2025 (1 minute)
 .venv\Scripts\python.exe sample_posterior.py    # 9. posterior samples with NUTS (about 4 minutes)
 .venv\Scripts\python.exe fit_ratings.py         # 10. final ratings from all data
