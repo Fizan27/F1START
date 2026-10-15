@@ -77,10 +77,13 @@ def peak_ratings(fit: model.Fit) -> tuple[pl.DataFrame, torch.Tensor, torch.Tens
     rows = []
     for row, (driver, career) in enumerate(careers.items()):
         years = [year for year, _ in career]
-        skills = [fit.skill[position].item() for _, position in career]
+        # Effective skill: the driver's own skill plus the typical gain or
+        # loss for their year in F1 (the experience curve).
+        skills = [fit.skill[position].item() + model.experience_bonus(fit, driver, year) for year, position in career]
         start, end = peak_window(years, skills)
         for _, position in career[start:end]:
-            weights[row, position] = 1.0 / (end - start)
+            for unknown in model.effective_positions(fit.layout, fit.data["links"], position):
+                weights[row, unknown] += 1.0 / (end - start)
         rows.append({"DriverId": driver, "PeakFrom": years[start], "PeakTo": years[end - 1],
                      "PeakSkill": sum(skills[start:end]) / (end - start),
                      "FirstYear": years[0], "LastYear": years[-1], "Seasons": len(years)})
@@ -251,7 +254,8 @@ def main():
     print("Learned scales:", {name: round(value, 3) for name, value in fit.scales.items()})
     print("Era levels:", {decade: round(level, 2) for decade, level in fit.era_level.items()})
 
-    wet_fit = model.fit_model(pairs, pace, last_year, wet_races=model.load_wet_races(), options=model.Options(wet=True))
+    wet_fit = model.fit_model(pairs, pace, last_year, wet_races=model.load_wet_races(),
+                              options=model.Options(wet=True, experience=True))
     ratings, covariance, peaks = build_ratings(fit, wet_fit, results, pairs, pace)
     cars, driver_weight = model.car_strengths(results, fit, last_year)
     print(f"Driver weight in race results: {driver_weight:.3f}")

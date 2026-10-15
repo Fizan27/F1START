@@ -7,7 +7,8 @@
 //     validation.json   the 2024 and 2025 test (validate_model.py)
 //     backtest.json     every season 2010 to 2025 predicted from earlier ones (backtest.py)
 //     sensitivity.json  how the top 20 moves under other assumptions (sensitivity.py)
-// What it reads: those three files from public/data.
+//     improvements.json how far prediction can go (backtest_improvements.py)
+// What it reads: those four files from public/data.
 // Which files use it: none (it is a page).
 
 "use client";
@@ -34,6 +35,12 @@ type Backtest = {
   summaryUncalibrated: { race: SeasonScore };
   variants: Record<string, { race: SeasonScore }>;
 };
+type ImprovementRow = {
+  label: string;
+  race: { accuracy: number; brier: number; log_loss: number };
+  quali: { accuracy: number; brier: number; log_loss: number } | null; // null: not applicable
+};
+type Improvements = { firstSeason: number; lastSeason: number; table: ImprovementRow[] };
 type Sensitivity = {
   assumptions: Record<string, number>;
   solidWithin: number;
@@ -47,6 +54,7 @@ export default function AboutPage() {
   const validation = useData<Validation>("validation.json");
   const backtest = useData<Backtest>("backtest.json");
   const sensitivity = useData<Sensitivity>("sensitivity.json");
+  const improvements = useData<Improvements>("improvements.json");
 
   return (
     <div className="prose">
@@ -191,6 +199,17 @@ export default function AboutPage() {
         <p className="muted">Loading results...</p>
       )}
 
+      <h2>How far can prediction go?</h2>
+      <p>
+        Even knowing a season&apos;s results in hindsight, a model can only call so many teammate battles,
+        because single races are full of luck. The table compares the current model with three possible
+        improvements (refitting before every race, using the same weekend&apos;s qualifying, and a curve for
+        how drivers improve with experience), and with two hindsight references that are allowed to see
+        the answers, so they show how much room there is. Every fair row predicts each race only from
+        earlier races.
+      </p>
+      {improvements ? <ImprovementTable improvements={improvements} /> : <p className="muted">Loading...</p>}
+
       <h2>Which rankings depend on an assumption?</h2>
       <p>
         One thing the data cannot settle: did the general level of F1 drivers rise or fall between decades?
@@ -291,6 +310,41 @@ function BacktestChart({ backtest }: { backtest: Backtest }) {
       <div className="legend">
         {series.map((s) => <span key={s.key}><i style={{ background: s.colour }} />{s.label}</span>)}
       </div>
+    </div>
+  );
+}
+
+function ImprovementTable({ improvements }: { improvements: Improvements }) {
+  const cell = (value: number) => <td className="right num">{value.toFixed(4)}</td>;
+  return (
+    <div className="card table-scroll" style={{ margin: "12px 0" }}>
+      <h3>Teammate predictions, {improvements.firstSeason} to {improvements.lastSeason} pooled</h3>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th className="right">Race</th><th className="right">Brier</th><th className="right">Log loss</th>
+            <th className="right">Qualifying</th><th className="right">Brier</th><th className="right">Log loss</th>
+          </tr>
+        </thead>
+        <tbody>
+          {improvements.table.map((row) => (
+            <tr key={row.label} className={row.label.includes("indsight") ? "muted" : ""}>
+              <td>{row.label}</td>
+              <td className="right num">{percent(row.race.accuracy)}</td>{cell(row.race.brier)}{cell(row.race.log_loss)}
+              {row.quali ? (
+                <><td className="right num">{percent(row.quali.accuracy)}</td>{cell(row.quali.brier)}{cell(row.quali.log_loss)}</>
+              ) : (
+                <td className="right muted small" colSpan={3}>not applicable</td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted small" style={{ marginTop: 8 }}>
+        Lower Brier and log loss are better; a coin flip scores 0.25 and 0.693. The greyed rows know the
+        answers and are not fair models.
+      </p>
     </div>
   );
 }

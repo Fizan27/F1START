@@ -65,6 +65,12 @@ ERA_DRIFT = 0.1
 # skill, before seeing any wet race. An assumption: see DECISIONS.md 30.
 WET_SPREAD = 0.25
 
+# The experience curve (Options.experience) has one value per year in F1, up
+# to this many; later years share the last value. Neighbouring years are
+# probably close (EXPERIENCE_STEP), which keeps the curve smooth.
+MAX_EXPERIENCE = 10
+EXPERIENCE_STEP = 0.1
+
 # Qualifying before 2006 was run in formats (one lap each, race fuel on
 # board) that made the gap between teammates noisier, so it gets its own
 # noise level and does not blur the modern data.
@@ -114,6 +120,7 @@ class Options:
     number_one: bool = False  # leave out race results arranged by documented team orders
     career_prior: bool = False  # drivers with short careers start from a lower expected skill
     wet: bool = False  # a separate skill adjustment for each driver in wet races
+    experience: bool = True  # a shared curve: how drivers typically improve or decline with years in F1
 
 
 @dataclass
@@ -131,13 +138,30 @@ class Fit:
     career_weight: float = 0.0  # the learned weak-teammate correction (Options.career_prior)
     layout: dict = field(default_factory=dict)  # where each part sits in the list of unknowns
     data: dict = field(default_factory=dict)  # the comparisons, kept for sampling and explanations
+    experience_curve: list = field(default_factory=list)  # skill added in year 0, 1, 2... of a career
+    first_year: dict = field(default_factory=dict)  # driver -> first season in the data
 
 
 # --- Step 1: turn the tables into comparisons the model can read -----------
 
+def data_window(last_year: int, before_race: tuple[int, int] | None = None) -> pl.Expr:
+    """Which races a fit is allowed to see.
+
+    Normally every race up to the end of `last_year`. With `before_race`
+    (season, round), only races strictly BEFORE that race: earlier seasons,
+    plus earlier rounds of the same season. This is what stops a prediction
+    from seeing its own race or anything after it.
+    """
+    if before_race is None:
+        return pl.col("Year") <= last_year
+    year, race = before_race
+    return (pl.col("Year") < year) | ((pl.col("Year") == year) & (pl.col("Round") < race))
+
+
 def build_comparisons(pairs: pl.DataFrame, pace: pl.DataFrame, last_year: int,
-                      wet_races: pl.DataFrame | None = None, options: Options | None = None) -> pl.DataFrame:
-    """One row per teammate pair per race, up to `last_year`, with up to five results.
+                      wet_races: pl.DataFrame | None = None, options: Options | None = None,
+                      before_race: tuple[int, int] | None = None) -> pl.DataFrame:
+    """One row per teammate pair per race, up to `last_year` (or before `before_race`).
 
     race_ahead:  1 if A finished ahead, 0 if B did (empty if a car failed, or
                  if the result was arranged by documented team orders and
@@ -160,7 +184,7 @@ def build_comparisons(pairs: pl.DataFrame, pace: pl.DataFrame, last_year: int,
     modern = pl.col("Year") >= FIRST_MODERN_QUALI_YEAR
     pace_gap = pl.col("PaceA") - pl.col("PaceB")
     table = (
-        pairs.filter(pl.col("Year") <= last_year)
+        pairs.filter(data_window(last_year, before_race))
         .join(driver_pace.rename({"DriverId": "DriverA", "PacePct": "PaceA"}),
               on=["Year", "Round", "DriverA"], how="left")
         .join(driver_pace.rename({"DriverId": "DriverB", "PacePct": "PaceB"}),
@@ -251,8 +275,12 @@ def career_links(index: dict) -> dict:
     """
     decades = sorted({decade_of(year) for _, year in index})
     first, first_era, earlier, later, years, seasons = [], [], [], [], [], []
-    previous = None
+    experience = [0] * len(index)  # years since the driver's first season, capped
+    previous, first_year = None, None
     for (driver, year), position in index.items():  # sorted by driver, then year
+        if previous is None or previous[0] != driver:
+            first_year = year
+        experience[position] = min(year - first_year, MAX_EXPERIENCE)
         if previous is None or previous[0] != driver:
             first.append(position)
             first_era.append(decades.index(decade_of(year)))
@@ -273,6 +301,7 @@ def career_links(index: dict) -> dict:
         "earlier": positions(earlier), "later": positions(later),
         "years": torch.tensor(years, device=DEVICE, dtype=DTYPE),
         "career_length": length - length.mean(),
+        "experience": positions(experience),
     }
 
 
@@ -365,6 +394,9 @@ def log_prior(parts, links, skill_spread, season_drift) -> torch.Tensor:
         total = total + normal(0.0, WET_SPREAD).log_prob(parts["wet"]).sum()
     if parts["career_weight"] is not None:
         total = total + normal(0.0, 1.0).log_prob(parts["career_weight"]).sum()  # a weak, wide belief
+    if parts["experience_curve"] is not None:
+        steps = parts["experience_curve"][1:] - parts["experience_curve"][:-1]
+        total = total + normal(0.0, EXPERIENCE_STEP).log_prob(steps).sum()
     return total
 
 
@@ -373,7 +405,8 @@ def unknown_layout(skill_count: int, decade_count: int, driver_count: int, optio
     layout, start = {}, 0
     for name, size in [("skill", skill_count), ("era_level", decade_count - 1),
                        ("wet", driver_count if options.wet else 0),
-                       ("career_weight", 1 if options.career_prior else 0)]:
+                       ("career_weight", 1 if options.career_prior else 0),
+                       ("experience", MAX_EXPERIENCE if options.experience else 0)]:
         layout[name] = (start, start + size)
         start += size
     layout["total"] = start
@@ -398,6 +431,9 @@ def split(unknowns: torch.Tensor, layout: dict) -> dict:
         "era_level": zero if earlier_levels is None else torch.cat([earlier_levels, zero]),
         "wet": part("wet"),
         "career_weight": part("career_weight"),
+        # Year 0 of a career is the reference (0); the curve says how much
+        # a typical driver gains or loses from there.
+        "experience_curve": None if part("experience") is None else torch.cat([zero, part("experience")]),
     }
 
 
@@ -409,16 +445,48 @@ def positive_scales(raw: torch.Tensor) -> dict:
 def badness(unknowns, raw_scales, data, skill_spread, season_drift):
     """One number to make as small as possible: minus (fit to results + prior belief)."""
     parts = split(unknowns, data["layout"])
-    return -(log_likelihood(parts["skill"], positive_scales(raw_scales), data["results"], parts["wet"])
+    return -(log_likelihood(effective_skill(parts, data["links"]), positive_scales(raw_scales),
+                            data["results"], parts["wet"])
              + log_prior(parts, data["links"], skill_spread, season_drift))
+
+
+def effective_positions(layout: dict, links: dict, position: int) -> list[int]:
+    """Where a driver-season's effective skill sits in the list of unknowns.
+
+    Its own skill, plus (with the experience curve) the curve value for its
+    year in F1. Year 0 is fixed at zero, so it has no position. Used to work
+    out the uncertainty of anything built from effective skills, such as a peak.
+    """
+    positions = [position]
+    start, end = layout.get("experience", (0, 0))
+    year_in_f1 = int(links["experience"][position])
+    if end > start and year_in_f1 >= 1:
+        positions.append(start + year_in_f1 - 1)
+    return positions
+
+
+def effective_skill(parts, links):
+    """The skill each driver-season races with: their own skill plus, if the
+    model has one, the typical gain or loss for their years in F1."""
+    if parts["experience_curve"] is None:
+        return parts["skill"]
+    return parts["skill"] + parts["experience_curve"][links["experience"]]
 
 
 # --- Step 3: find the best skills, then how uncertain they are -------------
 
-def find_best_skills(data, skill_spread, season_drift):
-    """Find the skills, era levels, scales and optional parts that make the badness smallest."""
-    unknowns = torch.zeros(data["layout"]["total"], device=DEVICE, dtype=DTYPE, requires_grad=True)
-    raw_scales = torch.zeros(len(SCALE_NAMES), device=DEVICE, dtype=DTYPE, requires_grad=True)
+def find_best_skills(data, skill_spread, season_drift, start=None):
+    """Find the skills, era levels, scales and optional parts that make the badness smallest.
+
+    `start` is an optional (unknowns, scales) pair to begin from, such as the
+    previous race's fit. It changes only how fast the answer is found, not
+    the answer, because the optimiser always runs until it settles.
+    """
+    if start is None:
+        start = (torch.zeros(data["layout"]["total"], device=DEVICE, dtype=DTYPE),
+                 torch.zeros(len(SCALE_NAMES), device=DEVICE, dtype=DTYPE))
+    unknowns = start[0].clone().requires_grad_(True)
+    raw_scales = start[1].clone().requires_grad_(True)
     # L-BFGS is an optimiser for smooth problems where all the data fits in
     # memory at once. It needs far fewer steps here than Adam would.
     optimiser = torch.optim.LBFGS([unknowns, raw_scales], max_iter=1000,
@@ -456,12 +524,13 @@ def uncertainty(unknowns, raw_scales, data, skill_spread, season_drift):
     return torch.linalg.inv(hessian)
 
 
-def prepare(pairs, pace, last_year, wet_races=None, options: Options | None = None) -> tuple[dict, dict]:
+def prepare(pairs, pace, last_year, wet_races=None, options: Options | None = None,
+            before_race: tuple[int, int] | None = None) -> tuple[dict, dict]:
     """Build everything the fit needs: the comparisons as tensors, careers, layout."""
     options = options or Options()
     if not options.wet:
         wet_races = None
-    comparisons = build_comparisons(pairs, pace, last_year, wet_races, options)
+    comparisons = build_comparisons(pairs, pace, last_year, wet_races, options, before_race)
     index = driver_season_index(comparisons)
     drivers = sorted({driver for driver, _ in index})
     links = career_links(index)
@@ -473,11 +542,17 @@ def prepare(pairs, pace, last_year, wet_races=None, options: Options | None = No
 
 def fit_model(pairs, pace, last_year, skill_spread=DEFAULT_SKILL_SPREAD,
               season_drift=DEFAULT_SEASON_DRIFT, wet_races=None, options: Options | None = None,
-              with_uncertainty: bool = True) -> Fit:
-    """Fit the model on every teammate comparison up to and including `last_year`."""
+              with_uncertainty: bool = True, before_race: tuple[int, int] | None = None,
+              start: "Fit | None" = None) -> Fit:
+    """Fit the model on every teammate comparison up to and including `last_year`.
+
+    before_race: (season, round) to fit only on races before that race.
+    start:       an earlier fit to begin from (much faster; same answer).
+    """
     options = options or Options()
-    index, data = prepare(pairs, pace, last_year, wet_races, options)
-    unknowns, raw_scales = find_best_skills(data, skill_spread, season_drift)
+    index, data = prepare(pairs, pace, last_year, wet_races, options, before_race)
+    initial = warm_start(start, index, data) if start is not None else None
+    unknowns, raw_scales = find_best_skills(data, skill_spread, season_drift, initial)
     covariance = (uncertainty(unknowns, raw_scales, data, skill_spread, season_drift)
                   if with_uncertainty else None)
     parts = split(unknowns, data["layout"])
@@ -491,7 +566,41 @@ def fit_model(pairs, pace, last_year, skill_spread=DEFAULT_SKILL_SPREAD,
         wet=wet_table(parts["wet"], covariance, data) if parts["wet"] is not None else {},
         career_weight=parts["career_weight"].item() if parts["career_weight"] is not None else 0.0,
         layout=data["layout"], data=data,
+        experience_curve=[] if parts["experience_curve"] is None else parts["experience_curve"].tolist(),
+        first_year=first_years(index),
     )
+
+
+def first_years(index: dict) -> dict:
+    """Each driver's first season in the fitted data."""
+    first = {}
+    for driver, year in index:
+        first[driver] = min(year, first.get(driver, year))
+    return first
+
+
+def warm_start(start: Fit, index: dict, data: dict):
+    """Starting values for a new fit, copied from an earlier fit wherever they exist.
+
+    A driver-season the earlier fit did not have (a new season, a new driver)
+    starts from that driver's latest earlier value, or from 0 for a newcomer.
+    """
+    unknowns = torch.zeros(data["layout"]["total"], device=DEVICE, dtype=DTYPE)
+    old = start.data["unknowns"]
+    latest = {}
+    for (driver, year), position in start.index.items():
+        latest[driver] = old[position]
+    for (driver, year), position in index.items():
+        if (driver, year) in start.index:
+            unknowns[position] = old[start.index[(driver, year)]]
+        elif driver in latest:
+            unknowns[position] = latest[driver]
+    for name in ("era_level", "wet", "career_weight", "experience"):
+        new_start, new_end = data["layout"][name]
+        old_start, old_end = start.layout.get(name, (0, 0))
+        if new_end - new_start == old_end - old_start and new_end > new_start:
+            unknowns[new_start:new_end] = old[old_start:old_end]
+    return unknowns, start.data["raw_scales"].clone()
 
 
 def wet_table(wet, covariance, data) -> dict:
@@ -533,7 +642,7 @@ def skill_gap(fit: Fit, driver_a: str, driver_b: str, year: int) -> tuple[float,
         else:
             position = fit.index[(driver, season)]
             positions.append(position)
-            means.append(fit.skill[position].item())
+            means.append(fit.skill[position].item() + experience_bonus(fit, driver, year))
             variance += fit.covariance[position, position].item()
             variance += fit.season_drift ** 2 * (year - season)
     if len(positions) == 2:
@@ -541,6 +650,28 @@ def skill_gap(fit: Fit, driver_a: str, driver_b: str, year: int) -> tuple[float,
         # certain GAP than their separate uncertainties suggest.
         variance -= 2 * fit.covariance[positions[0], positions[1]].item()
     return means[0] - means[1], variance
+
+
+def expected_gap(fit: Fit, driver_a: str, driver_b: str, year: int) -> float:
+    """Just the best estimate of the skill gap (A minus B), for a fit made without uncertainty."""
+    means = []
+    for driver in (driver_a, driver_b):
+        season = latest_season(fit, driver, year)
+        means.append(0.0 if season is None else
+                     fit.skill[fit.index[(driver, season)]].item() + experience_bonus(fit, driver, year))
+    return means[0] - means[1]
+
+
+def experience_bonus(fit: Fit, driver: str, year: int) -> float:
+    """The typical gain or loss for a driver's years in F1 in `year` (0 without the curve).
+
+    This is how the curve helps predictions: a rookie fitted on one season is
+    expected to improve the next, a veteran to decline.
+    """
+    if not fit.experience_curve:
+        return 0.0
+    first = fit.first_year.get(driver, year)
+    return fit.experience_curve[min(year - first, MAX_EXPERIENCE)]
 
 
 def chance_ahead(gap: float, variance: float, slope: float) -> float:
@@ -564,7 +695,7 @@ def race_chance(fit: Fit, gap: float, variance: float, temperature: float | None
 def skill_table(fit: Fit) -> pl.DataFrame:
     """The fitted skills as a table: one row per driver per season, with uncertainty."""
     spread = fit.covariance.diagonal().sqrt()
-    rows = [(driver, year, fit.skill[position].item(), spread[position].item())
+    rows = [(driver, year, fit.skill[position].item() + experience_bonus(fit, driver, year), spread[position].item())
             for (driver, year), position in fit.index.items()]
     return pl.DataFrame(rows, schema=["DriverId", "Year", "Skill", "SkillSd"], orient="row")
 

@@ -42,11 +42,12 @@ LAST_CALIBRATION_SEASON = 2023  # the temperature is fitted on seasons up to her
 TEMPERATURES_TO_TRY = [round(0.1 + 0.05 * step, 2) for step in range(59)]  # 0.1 to 3.0
 
 VARIANTS = {
-    "base": model.Options(number_one=False, career_prior=False, wet=False),
-    "team orders": model.Options(number_one=True, career_prior=False, wet=False),
-    "weak teammates": model.Options(number_one=False, career_prior=True, wet=False),
-    "wet": model.Options(number_one=False, career_prior=False, wet=True),
-    "weak teammates + wet": model.Options(number_one=False, career_prior=True, wet=True),
+    # experience=False: these were run before the experience curve existed (DECISIONS.md 28).
+    "base": model.Options(number_one=False, career_prior=False, wet=False, experience=False),
+    "team orders": model.Options(number_one=True, career_prior=False, wet=False, experience=False),
+    "weak teammates": model.Options(number_one=False, career_prior=True, wet=False, experience=False),
+    "wet": model.Options(number_one=False, career_prior=False, wet=True, experience=False),
+    "weak teammates + wet": model.Options(number_one=False, career_prior=True, wet=True, experience=False),
 }
 # The version the site uses. Chosen by race log loss over all test seasons
 # (DECISIONS.md 28): none of the optional parts improved it.

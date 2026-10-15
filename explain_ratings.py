@@ -58,7 +58,7 @@ def pull_and_curvature(fit: model.Fit) -> dict:
     for all comparisons at once.
     """
     data, scales = fit.data, fit.scales
-    skill = model.split(data["unknowns"], data["layout"])["skill"]
+    skill = model.effective_skill(model.split(data["unknowns"], data["layout"]), data["links"])
     noise_name = {"quali_gap": "quali_noise", "old_quali_gap": "old_quali_noise", "pace_gap": "pace_noise"}
     out = {}
     for kind, rows in data["results"].items():
@@ -114,22 +114,24 @@ def battle_effects(fit: model.Fit, weights: torch.Tensor) -> tuple[torch.Tensor,
     which is the Woodbury identity applied to (Hessian - U diag(c) U')^-1.
     """
     covariance = fit.covariance
-    start, end = fit.layout["skill"]
-    full = torch.zeros(weights.shape[0], fit.layout["total"], dtype=model.DTYPE, device=model.DEVICE)
-    full[:, start:end] = weights[:, start:end]
-    reach = covariance @ full.T  # column j: how each unknown is tied to driver j's peak
+    reach = covariance @ weights.T  # column j: how each unknown is tied to driver j's peak
     pairings, columns = pairing_columns(fit)
+    layout, links = fit.layout, fit.data["links"]
 
     effects = torch.zeros(len(pairings), weights.shape[0], dtype=model.DTYPE, device=model.DEVICE)
     for row, cols in enumerate(columns):
-        a = torch.tensor([col[0] for col in cols], device=model.DEVICE)
-        b = torch.tensor([col[1] for col in cols], device=model.DEVICE)
+        # U: one column per season, +1 where A's effective skill sits, -1 for B's.
+        u = torch.zeros(layout["total"], len(cols), dtype=model.DTYPE, device=model.DEVICE)
+        for j, (a, b, _, _) in enumerate(cols):
+            for unknown in model.effective_positions(layout, links, a):
+                u[unknown, j] += 1.0
+            for unknown in model.effective_positions(layout, links, b):
+                u[unknown, j] -= 1.0
         pull = torch.tensor([col[2] for col in cols], dtype=model.DTYPE, device=model.DEVICE)
         curvature = torch.tensor([col[3] for col in cols], dtype=model.DTYPE, device=model.DEVICE).clamp(min=1e-9)
-        cov_u = covariance[:, a] - covariance[:, b]  # Cov U
-        small = cov_u[a] - cov_u[b]  # M = U' Cov U, one row and column per season
+        small = u.T @ covariance @ u  # M = U' Cov U, one row and column per season
         correction = torch.linalg.solve(torch.diag(1 / curvature) - small, small @ pull)
-        moved = reach[a] - reach[b]  # m for every driver at once: seasons x drivers
+        moved = u.T @ reach  # m for every driver at once: seasons x drivers
         effects[row] = (pull + correction) @ moved
     return effects, pairings
 

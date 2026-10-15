@@ -292,7 +292,10 @@ def main():
         spread, drift = tune(pairs, pace)
 
     print(f"\nFitting on results up to {TRAIN_UNTIL} (skill spread {spread}, season drift {drift})...")
-    fit = model.fit_model(pairs, pace, TRAIN_UNTIL, spread, drift, wet_races=model.load_wet_races())
+    # The 2024 and 2025 test as it was originally run, before the experience
+    # curve was added (that is tested by backtest_improvements.py instead).
+    fit = model.fit_model(pairs, pace, TRAIN_UNTIL, spread, drift, wet_races=model.load_wet_races(),
+                          options=model.Options(experience=False))
     print(f"{len(fit.index):,} driver-seasons fitted on {model.DEVICE}")
     print("Learned scales:", {name: round(value, 3) for name, value in fit.scales.items()})
 

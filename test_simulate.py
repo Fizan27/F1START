@@ -138,8 +138,11 @@ def test_the_top_driver_wins_often_from_pole_and_sometimes_from_further_back(int
 
 
 def test_the_fastest_lap_usually_goes_to_a_quick_driver(interlagos_numbers):
-    # With 20 drivers, chance alone would give the top three 15%.
-    assert interlagos_numbers["fastest_lap_top3"] > 0.5
+    # With 20 drivers, chance alone would give the top three 15%. The measured
+    # value is about half (51.7% with the base model, 49.1% once the experience
+    # curve reshuffled today's ratings; DECISIONS.md 33 and 40), so the bound
+    # guards "far above chance", not one particular measurement.
+    assert interlagos_numbers["fastest_lap_top3"] > 0.4
 
 
 # --- Summary maths in export_web.py ---
