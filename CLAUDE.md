@@ -40,6 +40,8 @@ well enough to explain it confidently in an interview.
 - After each step, say exactly how to run it and what the owner should expect
   to see.
 - Commit after each step. Push after each phase.
+- Never add Co-Authored-By lines (or any mention of Claude or AI) to commit
+  messages or pull requests. The owner is the only author shown on GitHub.
 - Never spend money: free tools and free hosting only.
 - Never make big changes across many files at once.
 
